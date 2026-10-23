@@ -1,0 +1,34 @@
+# Production on a single VM: Caddy terminates TLS (automatic Let's Encrypt) and proxies to the
+# frontend container, which serves the SPA and proxies /api to the backend.
+# Point DATABASE_URL at a managed PostgreSQL (recommended) — see docs/DEPLOYMENT.md.
+services:
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: ./backend/.env.production
+    volumes:
+      - uploads:/app/uploads
+    logging: { driver: json-file, options: { max-size: "20m", max-file: "5" } }
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on: [backend]
+    logging: { driver: json-file, options: { max-size: "20m", max-file: "5" } }
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN, e.g. erp.example.com}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [frontend]
+
+volumes:
+  uploads:
+  caddy_data:
+  caddy_config:

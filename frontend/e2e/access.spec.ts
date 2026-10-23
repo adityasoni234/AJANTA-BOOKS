@@ -1,0 +1,60 @@
+import { expect, test } from '@playwright/test'
+import { login } from './helpers'
+
+test('cashier sees only POS-related navigation and cannot open admin pages', async ({ page }) => {
+  await login(page, 'fort.cashier@ajantabooks.test')
+  await expect(page).toHaveURL(/\/pos/)
+  const nav = page.getByRole('navigation', { name: 'Main navigation' })
+  await expect(nav.getByRole('link', { name: 'Point of sale' })).toBeVisible()
+  await expect(nav.getByRole('link', { name: 'Employees & users' })).toHaveCount(0)
+  await expect(nav.getByRole('link', { name: 'Reports' })).toHaveCount(0)
+  await page.goto('/admin/users')
+  await expect(page.getByText(/Missing permission: users.view/)).toBeVisible()
+  // The working-location picker only offers the cashier's own outlet
+  const options = await page.getByLabel('Working location').locator('option').allTextContents()
+  expect(options).toEqual(['Fort, Mumbai'])
+})
+
+test('wrong password shows a generic error and sign-out ends the session', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByLabel('Email').fill('owner@ajantabooks.test')
+  await page.getByLabel('Password').fill('not-the-password')
+  await page.getByRole('button', { name: 'Sign in' }).click()
+  await expect(page.getByRole('alert')).toHaveText('Invalid email or password')
+  await login(page, 'owner@ajantabooks.test')
+  await page.getByRole('button', { name: 'Account menu' }).click()
+  await page.getByRole('menuitem', { name: 'Sign out' }).click()
+  await expect(page).toHaveURL(/\/login/)
+  await page.goto('/sales')
+  await expect(page).toHaveURL(/\/login/)
+})
+
+test('store manager approves a discount requested at the POS', async ({ browser }) => {
+  const cashierCtx = await browser.newContext()
+  const cashier = await cashierCtx.newPage()
+  await login(cashier, 'pune.cashier@ajantabooks.test')
+  await cashier.goto('/pos')
+  await cashier.getByRole('combobox', { name: 'Search or scan book' }).fill('Notebook')
+  await cashier.getByRole('listbox').getByRole('option').first().click()
+  await cashier.getByLabel('Bill discount (₹)').fill('50')
+  await cashier.getByLabel('Discount reason').fill('Bulk school order')
+  await cashier.getByRole('button', { name: /Complete sale/ }).click()
+  const approvalDialog = cashier.getByRole('dialog', { name: 'Manager approval needed' })
+  await expect(approvalDialog).toBeVisible()
+  await approvalDialog.getByRole('button', { name: 'Request approval' }).click()
+  await expect(approvalDialog.getByText(/Waiting for a manager/)).toBeVisible()
+
+  const mgrCtx = await browser.newContext()
+  const mgr = await mgrCtx.newPage()
+  await login(mgr, 'pune.manager@ajantabooks.test')
+  await mgr.goto('/approvals')
+  await mgr.getByRole('button', { name: 'Approve' }).first().click()
+  await expect(mgr.getByRole('button', { name: 'Approve' })).toHaveCount(0)
+
+  await expect(approvalDialog).toBeHidden({ timeout: 15_000 })
+  await expect(cashier.getByText('Manager approval attached')).toBeVisible()
+  await cashier.getByRole('button', { name: /Complete sale/ }).click()
+  await expect(cashier.getByRole('dialog', { name: 'Sale complete' })).toBeVisible()
+  await cashierCtx.close()
+  await mgrCtx.close()
+})

@@ -9,6 +9,7 @@ backend/tests/.uploads/
 # Env / secrets
 .env
 .env.*
+!.env.docker
 !.env.example
 !**/.env.example
 # Node

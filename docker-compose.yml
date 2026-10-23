@@ -1,0 +1,40 @@
+# Local / single-host stack: PostgreSQL + FastAPI backend + nginx-served frontend.
+# For production use docker-compose.prod.yml (TLS via Caddy, managed DB recommended).
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ajanta
+      POSTGRES_USER: ajanta
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ajanta_local_only}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ajanta -d ajanta"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    # Not published to the host: only the backend can reach the database.
+
+  backend:
+    build: ./backend
+    env_file: ./backend/.env.docker
+    environment:
+      DATABASE_URL: postgresql+psycopg://ajanta:${POSTGRES_PASSWORD:-ajanta_local_only}@db:5432/ajanta
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - uploads:/app/uploads
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-8080}:80"
+
+volumes:
+  pgdata:
+  uploads:

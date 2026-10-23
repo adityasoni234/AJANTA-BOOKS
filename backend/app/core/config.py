@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _production_guards(self) -> "Settings":
         if self.app_env == "production":
-            weak = {"change-me", "changeme", "dev-secret"}
+            weak = {"change", "local", "dev-secret", "test-secret", "example", "placeholder"}
             if any(w in self.secret_key.lower() for w in weak):
                 raise ValueError("SECRET_KEY must be a strong random value in production")
             if not self.cookie_secure:

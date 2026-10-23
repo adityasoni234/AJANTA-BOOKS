@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
@@ -111,7 +111,7 @@ def notifications(unread_only: bool = False, params: PageParams = Depends(), ctx
 
 
 @router.post("/notifications/read")
-def mark_read(ids: list[uuid.UUID] | None = None, ctx: AuthContext = Depends(current_user), db: Session = Depends(get_db)):
+def mark_read(ids: list[uuid.UUID] | None = Body(default=None), ctx: AuthContext = Depends(current_user), db: Session = Depends(get_db)):
     q = update(Notification).where(Notification.user_id == ctx.user_id, Notification.read_at.is_(None))
     if ids:
         q = q.where(Notification.id.in_(ids))
