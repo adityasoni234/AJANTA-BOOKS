@@ -68,7 +68,7 @@ export default function StockPage() {
           </>
         }
       />
-      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="mb-6 grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Units on hand" value={formatNumber(totals.on_hand)} hint={`${formatNumber(totals.titles)} titles in stock`} />
         <StatCard label="In transit (inbound)" value={formatNumber(totals.transit)} tone="info" />
         <StatCard label="Damaged / quarantined" value={formatNumber(totals.unsellable)} tone="warning" />

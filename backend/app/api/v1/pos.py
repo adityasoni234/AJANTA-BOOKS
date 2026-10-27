@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import AuthContext, require, require_any
@@ -29,6 +29,7 @@ from app.schemas.common import ORM, Page, PageParams, paginate
 from app.services import finance as fin
 from app.services import sales as svc
 from app.services.audit import audit
+from app.services.reports import local_date
 from app.services.words import amount_in_words
 
 router = APIRouter(tags=["pos"])
@@ -343,9 +344,9 @@ def list_sales(location_id: uuid.UUID | None = None, customer_id: uuid.UUID | No
     if status:
         stmt = stmt.where(Sale.status == status)
     if date_from:
-        stmt = stmt.where(func.date(func.timezone("Asia/Kolkata", Sale.created_at)) >= date_from)
+        stmt = stmt.where(local_date(db, Sale.created_at) >= date_from)
     if date_to:
-        stmt = stmt.where(func.date(func.timezone("Asia/Kolkata", Sale.created_at)) <= date_to)
+        stmt = stmt.where(local_date(db, Sale.created_at) <= date_to)
     if register_session_id:
         stmt = stmt.where(Sale.register_session_id == register_session_id)
     if payment_method_id:

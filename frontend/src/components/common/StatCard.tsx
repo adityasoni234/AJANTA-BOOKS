@@ -20,7 +20,7 @@ export function StatCard({ label, value, hint, icon: Icon, tone = 'primary', war
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-medium text-muted">{label}</p>
-          <p className="num mt-1.5 truncate text-xl font-semibold text-foreground">{value}</p>
+          <p className="num mt-1.5 break-words text-lg font-semibold text-foreground sm:text-xl">{value}</p>
           {hint && <p className="mt-1 text-xs text-muted">{hint}</p>}
           {warning && <p className="mt-1 text-xs text-warning">{warning}</p>}
         </div>

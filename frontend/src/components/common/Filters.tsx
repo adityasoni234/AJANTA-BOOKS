@@ -62,10 +62,10 @@ const PRESETS = [
 export function DateRange({ from, to, onChange }: { from: string; to: string; onChange: (from: string, to: string) => void }) {
   const preset = PRESETS.find((p) => from === daysAgoISO(p.days) && to === todayISO())
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="grid w-full grid-cols-2 items-center gap-2 sm:flex sm:w-auto">
       <NativeSelect
         aria-label="Date range preset"
-        className="w-36"
+        className="col-span-2 sm:w-36"
         value={preset ? String(preset.days) : 'custom'}
         onChange={(e) => {
           if (e.target.value !== 'custom') onChange(daysAgoISO(Number(e.target.value)), todayISO())
@@ -74,9 +74,9 @@ export function DateRange({ from, to, onChange }: { from: string; to: string; on
         {PRESETS.map((p) => <option key={p.days} value={p.days}>{p.label}</option>)}
         <option value="custom">Custom</option>
       </NativeSelect>
-      <Input type="date" aria-label="From date" value={from} max={to} onChange={(e) => onChange(e.target.value, to)} className="w-38" />
-      <span className="text-muted">–</span>
-      <Input type="date" aria-label="To date" value={to} min={from} max={todayISO()} onChange={(e) => onChange(from, e.target.value)} className="w-38" />
+      <Input type="date" aria-label="From date" value={from} max={to} onChange={(e) => onChange(e.target.value, to)} className="sm:w-38" />
+      <span className="hidden text-muted sm:inline">–</span>
+      <Input type="date" aria-label="To date" value={to} min={from} max={todayISO()} onChange={(e) => onChange(from, e.target.value)} className="sm:w-38" />
     </div>
   )
 }

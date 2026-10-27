@@ -75,7 +75,7 @@ function DashboardBody({ d }: { d: Dashboard }) {
   const outlets = d.outlets.map((o) => ({ name: o.label, value: Number(o.net_sales) }))
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Sales today (incl. GST)" value={formatINR(d.today.invoice_value)} hint={`${d.today.transactions} bills · net ${formatINR(d.today.net_sales)}`} icon={IndianRupee} />
         <StatCard label="Net sales (period, ex-GST)" value={formatINR(s.net_sales)} hint={`${formatNumber(s.transactions)} bills · avg ${formatINR(s.avg_basket)}`} icon={TrendingUp} tone="success" />
         <StatCard
@@ -134,7 +134,7 @@ function DashboardBody({ d }: { d: Dashboard }) {
         </Card>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 lg:grid-cols-4">
         <PendingTile to="/approvals" label="Pending approvals" value={d.pending.approvals} icon={BadgeCheck} />
         <PendingTile to="/transfers" label="Open transfers" value={d.pending.transfers} icon={ArrowLeftRight} />
         <PendingTile to="/inventory?status=LOW" label="Low / out of stock" value={`${d.alerts.low} / ${d.alerts.out}`} icon={AlertTriangle} tone={d.alerts.out ? 'danger' : 'warning'} />

@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel, EmailStr, Field, field_validator
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.api.deps import AuthContext, require, require_any
@@ -20,6 +20,7 @@ from app.services.accounting import Leg
 from app.services.audit import audit
 from app.services.gst import valid_gstin
 from app.services.numbering import next_code
+from app.services.reports import local_date
 from app.services.settings import get_policy
 
 router = APIRouter(tags=["customers"])
@@ -112,8 +113,29 @@ def _out(c: Customer, st: dict | None) -> CustomerOut:
     return o
 
 
+def _segment_expr(ctx: AuthContext):
+    """SQL version of _segment() so the segment filter applies before pagination."""
+    sale_stats = (select(Sale.customer_id.label("cid"), func.count().label("visits"),
+                         func.sum(Sale.grand_total).label("spend"), func.max(Sale.created_at).label("last"))
+                  .where(Sale.status == "COMPLETED", ctx.loc_filter(Sale.location_id))
+                  .group_by(Sale.customer_id).subquery())
+    ret_stats = (select(Return.customer_id.label("cid"), func.sum(Return.refund_total).label("refunds"))
+                 .where(Return.status == "COMPLETED", ctx.loc_filter(Return.location_id))
+                 .group_by(Return.customer_id).subquery())
+    visits = func.coalesce(sale_stats.c.visits, 0)
+    spend = func.coalesce(sale_stats.c.spend, 0) - func.coalesce(ret_stats.c.refunds, 0)
+    segment = case(
+        (visits == 0, "NEW"),
+        (sale_stats.c.last < func.now() - text("interval '180 days'"), "LAPSED"),
+        (or_(spend >= 20000, visits >= 15), "VIP"),
+        (visits >= 3, "REGULAR"),
+        else_="OCCASIONAL",
+    )
+    return sale_stats, ret_stats, segment
+
+
 @router.get("/customers", response_model=Page[CustomerOut])
-def list_customers(q: str | None = Query(None, max_length=100), segment: str | None = None,
+def list_customers(q: str | None = Query(None, max_length=100), segment: str | None = Query(None, pattern=r"^(NEW|LAPSED|VIP|REGULAR|OCCASIONAL)$"),
                    with_balance: bool | None = None, params: PageParams = Depends(),
                    ctx: AuthContext = Depends(require_any("customers.view", "pos.sell")), db: Session = Depends(get_db)):
     stmt = select(Customer).order_by(Customer.name)
@@ -124,12 +146,13 @@ def list_customers(q: str | None = Query(None, max_length=100), segment: str | N
     if with_balance:
         stmt = stmt.where(Customer.id.in_(select(Sale.customer_id).where(Sale.grand_total > Sale.amount_paid,
                                                                         Sale.status == "COMPLETED")))
+    if segment:
+        sale_stats, ret_stats, seg = _segment_expr(ctx)
+        stmt = (stmt.outerjoin(sale_stats, sale_stats.c.cid == Customer.id)
+                .outerjoin(ret_stats, ret_stats.c.cid == Customer.id).where(seg == segment))
     rows, total = paginate(db, stmt, params)
     st = _stats(db, ctx, [c.id for c in rows])
-    items = [_out(c, st.get(c.id)) for c in rows]
-    if segment:
-        items = [i for i in items if i.segment == segment]
-    return Page(items=items, total=total, page=params.page, page_size=params.page_size)
+    return Page(items=[_out(c, st.get(c.id)) for c in rows], total=total, page=params.page, page_size=params.page_size)
 
 
 @router.post("/customers/check-duplicates", response_model=list[CustomerOut])
@@ -382,9 +405,9 @@ def list_returns(location_id: uuid.UUID | None = None, status: str | None = None
     if status:
         stmt = stmt.where(Return.status == status)
     if date_from:
-        stmt = stmt.where(func.date(Return.created_at) >= date_from)
+        stmt = stmt.where(local_date(db, Return.created_at) >= date_from)
     if date_to:
-        stmt = stmt.where(func.date(Return.created_at) <= date_to)
+        stmt = stmt.where(local_date(db, Return.created_at) <= date_to)
     rows, total = paginate(db, stmt, params)
     return {"items": [return_payload(db, r) for r in rows], "total": total, "page": params.page, "page_size": params.page_size}
 

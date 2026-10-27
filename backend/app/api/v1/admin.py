@@ -26,6 +26,7 @@ from app.services.audit import audit
 from app.services.auth import create_reset_token, revoke_user_sessions, set_password
 from app.services.gst import STATE_CODES, valid_gstin
 from app.services.mailer import integration_status
+from app.services.reports import local_date
 from app.services.settings import PolicySettings, get_policy, save_policy
 
 router = APIRouter(tags=["administration"])
@@ -567,9 +568,9 @@ def audit_logs(action: str | None = None, actor_id: uuid.UUID | None = None, ent
         ctx.ensure_location(location_id)
         stmt = stmt.where(AuditLog.location_id == location_id)
     if date_from:
-        stmt = stmt.where(func.date(AuditLog.ts) >= date_from)
+        stmt = stmt.where(local_date(db, AuditLog.ts) >= date_from)
     if date_to:
-        stmt = stmt.where(func.date(AuditLog.ts) <= date_to)
+        stmt = stmt.where(local_date(db, AuditLog.ts) <= date_to)
     rows, total = paginate(db, stmt, params, scalars=False)
     items = []
     for log, name in rows:

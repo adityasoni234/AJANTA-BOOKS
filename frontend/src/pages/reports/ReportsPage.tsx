@@ -114,7 +114,7 @@ function SalesReports({ q }: { q: Record<string, string | undefined> }) {
   return (
     <div className="space-y-6">
       {s.error ? <ErrorState error={s.error} /> : !s.data ? <LoadingRows rows={2} cols={4} /> : (
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 lg:grid-cols-4">
           <StatCard label="Gross sales" value={formatINR(s.data.gross_sales)} hint={`${formatNumber(s.data.transactions)} bills · ${s.data.voided} voided`} />
           <StatCard label="Discounts" value={formatINR(s.data.discounts)} tone="warning" />
           <StatCard label="Returns" value={formatINR(s.data.returns_value)} hint={`${s.data.returns_count} returns`} tone="warning" />

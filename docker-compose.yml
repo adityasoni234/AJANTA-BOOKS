@@ -2,7 +2,8 @@
 # For production use docker-compose.prod.yml (TLS via Caddy, managed DB recommended).
 services:
   db:
-    image: postgres:16-alpine
+    # Keep the major version equal to pg_dump in the backend image (Debian trixie ships 17).
+    image: postgres:17-alpine
     environment:
       POSTGRES_DB: ajanta
       POSTGRES_USER: ajanta

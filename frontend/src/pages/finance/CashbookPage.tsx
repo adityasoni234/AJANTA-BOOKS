@@ -43,7 +43,7 @@ export default function CashbookPage() {
           <button key={a.id} onClick={() => setAccount(a.id)} className={`rounded-full border px-3 py-1 text-sm ${a.id === account ? 'border-primary bg-primary-soft text-primary' : 'border-border bg-white hover:bg-surface-2'}`}>{a.name}</button>
         ))}
       </div>
-      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="mb-6 grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Opening balance" value={formatINR(book.data?.opening_balance)} />
         <StatCard label="Receipts" value={formatINR(book.data?.total_receipts)} tone="success" />
         <StatCard label="Payments" value={formatINR(book.data?.total_payments)} tone="danger" />

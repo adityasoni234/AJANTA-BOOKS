@@ -45,7 +45,7 @@ export default function CustomerDetailPage() {
           {can('customers.manage') && <Button variant="secondary" onClick={() => setDlg('adjust')}>Adjust balance</Button>}
           {can('customers.manage') && <Button onClick={() => setEdit(true)}><Pencil /> Edit</Button>}
         </>} />
-      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-5">
+      <div className="mb-6 grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 lg:grid-cols-5">
         <StatCard label="Lifetime spend (net)" value={formatINR(cu.lifetime_spend)} hint={`${cu.visits} visits`} />
         <StatCard label="Last purchase" value={formatDate(cu.last_purchase_at)} tone="info" />
         <StatCard label="Store credit" value={formatINR(cu.store_credit)} tone="success" />

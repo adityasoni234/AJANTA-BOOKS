@@ -195,3 +195,23 @@ def test_every_protected_route_requires_auth(world, anon):
                 continue
             checked += 1
     assert checked > 80
+
+
+def test_customer_segment_filter_is_applied_in_sql(world, client_for, db):
+    receive(db, world, world.fort, {"novel": 5})
+    loyal = Customer(code="SEG1", name="Loyal Reader", phone="9000000011")
+    new = Customer(code="SEG2", name="Brand New", phone="9000000012")
+    db.add_all([loyal, new])
+    db.commit()
+    s = open_register(db, world, "fort", "fort_cashier")
+    ctx = world.ctx(db, "fort_cashier")
+    for i in range(3):
+        sales.checkout(db, ctx, idempotency_key=f"seg-{i}", location_id=world.fort.id, register_session_id=s.id,
+                       items=[{"book_id": world.books["novel"].id, "qty": 1}], customer_id=loyal.id,
+                       payments=[{"payment_method_id": world.methods["CASH"].id, "amount": Decimal("500")}])
+        db.commit()
+    owner = client_for("owner")
+    regular = owner.get("/customers?segment=REGULAR").json()
+    assert [c["name"] for c in regular["items"]] == ["Loyal Reader"] and regular["total"] == 1
+    fresh = owner.get("/customers?segment=NEW").json()
+    assert "Brand New" in [c["name"] for c in fresh["items"]] and "Loyal Reader" not in [c["name"] for c in fresh["items"]]
