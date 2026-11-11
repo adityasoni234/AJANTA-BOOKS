@@ -105,6 +105,10 @@ export async function request<T>(method: string, path: string, opts: RequestOpti
     throw new ApiError(0, { code: 'network_error', message: 'Cannot reach the server. Check your connection and try again.' })
   }
   if (res.status === 401 && onUnauthorized && !path.startsWith('/auth/login')) onUnauthorized()
+  // The API never answers with a web page; one means the request reached static hosting, not the backend.
+  if ((res.headers.get('content-type') ?? '').includes('text/html')) {
+    throw new ApiError(503, { code: 'backend_unavailable', message: 'The server is not available right now. Please try again later.' })
+  }
   if (!res.ok) {
     let err: ApiErrorBody = { code: 'http_error', message: `Request failed (${res.status})` }
     try {
