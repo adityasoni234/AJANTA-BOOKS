@@ -29,3 +29,6 @@ local-credentials.txt
 
 # Firebase CLI cache
 .firebase/
+
+# Generated from firestore.rules.template
+firestore.rules

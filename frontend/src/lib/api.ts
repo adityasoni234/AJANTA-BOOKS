@@ -1,4 +1,4 @@
-/** Thin fetch wrapper: same-origin cookies, CSRF header on unsafe methods, structured errors. */
+/** API surface used by every page: same paths as before, served by src/server on Firebase. Structured errors. */
 
 export interface ApiErrorBody {
   code: string
@@ -44,21 +44,15 @@ export class ApiError extends Error {
   }
 }
 
-const BASE = '/api/v1'
-let csrfToken: string | null = null
 let onUnauthorized: (() => void) | null = null
 
-export function setCsrfToken(token: string | null) {
-  csrfToken = token
+/** Kept for callers; sessions are managed by Firebase Auth. */
+export function setCsrfToken(_token: string | null) {
+  void _token
 }
 
 export function setUnauthorizedHandler(fn: (() => void) | null) {
   onUnauthorized = fn
-}
-
-function readCookie(name: string): string | null {
-  const m = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`))
-  return m ? decodeURIComponent(m[1]) : null
 }
 
 type Query = Record<string, string | number | boolean | null | undefined>
@@ -83,46 +77,18 @@ interface RequestOptions {
 }
 
 export async function request<T>(method: string, path: string, opts: RequestOptions = {}): Promise<T> {
-  const headers: Record<string, string> = { Accept: 'application/json', ...opts.headers }
-  const unsafe = !['GET', 'HEAD', 'OPTIONS'].includes(method)
-  if (unsafe) {
-    const token = csrfToken ?? readCookie('ab_csrf')
-    if (token) headers['X-CSRF-Token'] = token
-  }
+  const headers: Record<string, string> = { ...opts.headers }
   if (opts.idempotencyKey) headers['Idempotency-Key'] = opts.idempotencyKey
-  let body: BodyInit | undefined
-  if (opts.body instanceof FormData) {
-    body = opts.body
-  } else if (opts.body !== undefined) {
-    headers['Content-Type'] = 'application/json'
-    body = JSON.stringify(opts.body)
-  }
-  let res: Response
+  // Data is handled in the browser by the Firebase-backed handlers in src/server (same paths as the old API).
+  const { dispatch } = await import('@/server')
   try {
-    res = await fetch(`${BASE}${path}${qs(opts.query)}`, { method, headers, body, credentials: 'same-origin', signal: opts.signal })
+    const data = await dispatch(method, `${path}${qs(opts.query)}`, opts.body, headers)
+    if (opts.raw) return (data instanceof Response ? data : new Response(data as BodyInit)) as unknown as T
+    return data as T
   } catch (e) {
-    if ((e as Error).name === 'AbortError') throw e
-    throw new ApiError(0, { code: 'network_error', message: 'Cannot reach the server. Check your connection and try again.' })
+    if (e instanceof ApiError && e.status === 401 && onUnauthorized && !path.startsWith('/auth/login')) onUnauthorized()
+    throw e
   }
-  if (res.status === 401 && onUnauthorized && !path.startsWith('/auth/login')) onUnauthorized()
-  // The API never answers with a web page; one means the request reached static hosting, not the backend.
-  if ((res.headers.get('content-type') ?? '').includes('text/html')) {
-    throw new ApiError(503, { code: 'backend_unavailable', message: 'The server is not available right now. Please try again later.' })
-  }
-  if (!res.ok) {
-    let err: ApiErrorBody = { code: 'http_error', message: `Request failed (${res.status})` }
-    try {
-      const j = await res.json()
-      if (j?.error) err = j.error
-    } catch {
-      /* non-JSON error */
-    }
-    throw new ApiError(res.status, err)
-  }
-  if (opts.raw) return res as unknown as T
-  if (res.status === 204) return undefined as T
-  const ct = res.headers.get('content-type') ?? ''
-  return (ct.includes('application/json') ? res.json() : res.text()) as Promise<T>
 }
 
 export const api = {

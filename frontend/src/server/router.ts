@@ -81,5 +81,5 @@ export async function dispatch(method: string, fullPath: string, body: unknown, 
       throw new ApiError(500, { code: 'internal_error', message: e instanceof Error ? e.message : 'An unexpected error occurred' })
     }
   }
-  throw new ApiError(404, { code: 'not_found', message: 'Not found' })
+  throw new ApiError(501, { code: 'not_available', message: 'This section is not available yet: it is still being moved to Firebase.' })
 }

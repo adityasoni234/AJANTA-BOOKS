@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   AlertTriangle, ArrowLeftRight, BadgeCheck, Banknote, Boxes, IndianRupee, PackageX, Receipt, RotateCcw, ShoppingBag, Store, TrendingUp,
 } from 'lucide-react'
@@ -11,11 +11,13 @@ import { PageHeader } from '@/components/common/PageHeader'
 import { StatCard } from '@/components/common/StatCard'
 import { EmptyState, ErrorState, PageLoader } from '@/components/common/States'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Card, CardBody, CardHeader } from '@/components/ui/card'
 import { TBody, TD, TH, THead, TR, Table } from '@/components/ui/table'
 import { useDateRange } from '@/lib/hooks'
 import { LIVE_REFRESH_MS } from '@/lib/queries'
-import { api } from '@/lib/api'
+import { api, errorMessage } from '@/lib/api'
+import { toast } from 'sonner'
 import { useAuth } from '@/lib/auth'
 import { formatDate, formatINR, formatNumber } from '@/lib/utils'
 
@@ -65,8 +67,33 @@ export default function DashboardPage() {
         description={`${scopeLabel} · ${formatDate(range.from)} – ${formatDate(range.to)}`}
         actions={<DateRange from={range.from} to={range.to} onChange={range.set} />}
       />
+      <SampleDataCard />
       {q.isLoading ? <PageLoader /> : q.error ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : q.data && <DashboardBody d={q.data} />}
     </div>
+  )
+}
+
+/** Owner-only: offers sample stores, books, stock and customers while the catalog is still empty. */
+function SampleDataCard() {
+  const { can, me } = useAuth()
+  const allowed = !!me?.all_locations && can('settings.manage', 'catalog.create', 'locations.manage', 'inventory.adjust')
+  const books = useQuery({ queryKey: ['books', 'any'], queryFn: () => api.get<{ total: number }>('/books', { page_size: 1 }), enabled: allowed })
+  const load = useMutation({
+    mutationFn: () => api.post<{ locations: number; books: number; customers: number }>('/sample-data'),
+    onSuccess: (r) => toast.success(`Sample data loaded: ${r.locations} locations, ${r.books} books with stock, ${r.customers} customers`),
+    onError: (e) => toast.error(errorMessage(e)),
+  })
+  if (!allowed || books.data?.total !== 0) return null
+  return (
+    <Card className="mb-6">
+      <CardBody className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="font-medium">Your catalog is empty</p>
+          <p className="text-sm text-muted">Load sample data to try the system: a warehouse and three outlets, 12 books with opening stock, and 4 customers. No logins are created; add staff under Administration → Users.</p>
+        </div>
+        <Button onClick={() => load.mutate()} loading={load.isPending}>Load sample data</Button>
+      </CardBody>
+    </Card>
   )
 }
 

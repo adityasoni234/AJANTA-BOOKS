@@ -138,7 +138,12 @@ export class Uow {
   private state = new Map<string, DocumentData | null>()
   private pending = new Map<string, Pending>()
   readonly at = nowIso()
-  constructor(private t: Transaction, private fs: Firestore) {}
+  private t: Transaction
+  private fs: Firestore
+  constructor(t: Transaction, fs: Firestore) {
+    this.t = t
+    this.fs = fs
+  }
 
   async get(path: string): Promise<Row | null> {
     if (!this.state.has(path)) {
@@ -183,7 +188,7 @@ export class Uow {
     } else {
       const merged = p?.data?.m ?? {}
       merged[key] = value === null ? deleteField() : strip(value)
-      this.pending.set(path, { kind: 'merge', data: { ...(p?.data ?? {}), ...(cur.location_id ? {} : {}), m: merged } })
+      this.pending.set(path, { kind: 'merge', data: { ...(p?.data ?? {}), m: merged } })
     }
   }
   /** Extra top-level fields to store alongside a sharded map (e.g. stock location id). */
@@ -221,6 +226,11 @@ export class Uow {
     return value
   }
 
+  /** Final state of every document this unit wrote (null = deleted). */
+  written(): [string, DocumentData | null][] {
+    return [...this.pending.keys()].map((p) => [p, this.state.get(p) ?? null])
+  }
+
   flush() {
     for (const [path, p] of this.pending) {
       const ref = doc(this.fs, path)
@@ -246,16 +256,45 @@ export function onCommit(fn: () => void) {
   afterCommit = fn
 }
 
+/**
+ * Committed transaction writes reach listeners only after a server round trip; apply them to the in-memory
+ * copies straight away so the next screen shows what was just saved.
+ */
+function applyLocal(written: [string, DocumentData | null][]) {
+  for (const [path, data] of written) {
+    const [coll, id] = path.split('/')
+    if (coll === 'stock') {
+      const l = live.get(`stock:${id.split('~')[0]}`)
+      if (l && !l.error) replaceShard(l, id, data)
+      continue
+    }
+    const l = live.get(coll)
+    if (!l || l.error) continue
+    if (coll === 'books' || coll === 'customers') replaceShard(l, id, data)
+    else if (data) l.rows.set(id, { ...data, id } as Row)
+    else l.rows.delete(id)
+  }
+}
+function replaceShard(l: Listener, shard: string, data: DocumentData | null) {
+  const rows = new Map([...l.rows].filter(([, r]) => r._shard !== shard))
+  for (const [id, v] of Object.entries((data?.m ?? {}) as Record<string, DocumentData>)) rows.set(id, { ...v, id, _shard: shard } as Row)
+  l.rows = rows
+}
+
 export async function tx<T>(fn: (u: Uow) => Promise<T>): Promise<T> {
   const fs = db()
-  let writes = 0
+  let written: [string, DocumentData | null][] = []
   const result = await runTransaction(fs, async (t) => {
     const u = new Uow(t, fs)
     const r = await fn(u)
-    writes = u.flush()
+    u.flush()
+    written = u.written()
     return r
   })
-  if (writes) afterCommit?.()
+  if (written.length) {
+    applyLocal(written)
+    afterCommit?.()
+  }
   return result
 }
 

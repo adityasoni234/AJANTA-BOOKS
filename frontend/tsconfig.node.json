@@ -21,5 +21,5 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["vite.config.ts", "vite-plugin-backend.ts"]
+  "include": ["vite.config.ts", "vite-plugin-firebase-emulators.ts"]
 }
