@@ -3,7 +3,7 @@ import { onAuthStateChanged, type User as FbUser } from 'firebase/auth'
 import { doc, onSnapshot } from 'firebase/firestore'
 import { auth, db } from './firebase'
 import { Forbidden, NotFound, Unauthorized } from './core'
-import { all, type Row, type Uow } from './store'
+import { all, currentTenant, fullPath, getOne, setTenant, type Row, type Uow } from './store'
 
 export interface Ctx {
   uid: string
@@ -49,7 +49,7 @@ export function watchProfile(uid: string): Promise<Row | null> {
     let resolve!: () => void
     const p = { uid, data: null as Row | null, ready: new Promise<void>((r) => (resolve = r)), unsub: () => {} }
     p.unsub = onSnapshot(
-      doc(db(), `users/${uid}`),
+      doc(db(), fullPath(`users/${uid}`)),
       (s) => {
         p.data = s.exists() ? ({ ...s.data(), id: s.id } as Row) : null
         resolve()
@@ -68,9 +68,39 @@ export function clearProfile() {
   profile = null
 }
 
+/** Find the business this login belongs to (`/members/{uid}`) and make it the current one. Null if none. */
+let tenantOf: { uid: string; org: Promise<string | null> } | null = null
+export function resolveTenant(uid: string): Promise<string | null> {
+  if (!tenantOf || tenantOf.uid !== uid) {
+    const t = { uid, org: getOne(`/members/${uid}`).catch(() => null).then((m) => {
+      const org = (m?.org_id as string | undefined) ?? null
+      if (org !== currentTenant()) {
+        clearProfile()
+        setTenant(org)
+      }
+      if (!org && tenantOf === t) tenantOf = null
+      return org
+    }) }
+    tenantOf = t
+  }
+  return tenantOf.org
+}
+/** Use this business for the given login (enrolment and sign-up, before the membership is readable). */
+export function enterTenant(uid: string, org: string) {
+  clearProfile()
+  setTenant(org)
+  tenantOf = { uid, org: Promise.resolve(org) }
+}
+export function forgetTenant() {
+  tenantOf = null
+  clearProfile()
+  setTenant(null)
+}
+
 export async function loadCtx(opts: { allowPendingPassword?: boolean } = {}): Promise<Ctx> {
   const fb = await currentFirebaseUser()
   if (!fb) throw Unauthorized('Not authenticated', { code: 'not_authenticated' })
+  if (!(await resolveTenant(fb.uid))) throw Unauthorized('Not authenticated', { code: 'not_authenticated' })
   const user = await watchProfile(fb.uid)
   if (!user || !user.is_active) throw Unauthorized('Account is deactivated', { code: 'account_inactive' })
   if (user.must_change_password && !opts.allowPendingPassword) throw Forbidden('Password change required', { code: 'password_change_required' })

@@ -35,10 +35,12 @@ browser by `frontend/src/server/*`, which reads and writes Firestore:
 * **Reports read summaries.** Each posting also adds to per-location daily and monthly totals, so a month of
   figures costs a few document reads instead of thousands (the free plan allows 50,000 reads/day).
 
-## First-time setup (live site)
+## Registering a business (live site)
 
-1. Open the site. While no owner exists it shows **First-time setup**.
-2. Create the business and the **owner account**. Only the email in `SETUP_EMAIL` (see below) may do this.
+1. Open the site. While no business exists it goes straight to **Register your business**; afterwards the
+   sign-in page links to it while places are left. At most `MAX_BUSINESSES` (default 2) businesses can
+   register; each keeps its data separate under `orgs/{businessId}` and can't see the others.
+2. Create the business and its **owner account**.
 3. Optional: on the dashboard, **Load sample data** adds a warehouse, three outlets, 12 books with opening
    stock and 4 customers. It creates no logins.
 4. Add stores under **Administration → Outlets & warehouses**, and their staff logins under
@@ -57,7 +59,7 @@ brew install openjdk@21              # Java, needed by the Firestore emulator
 Create `frontend/.env.local` (never committed) from `frontend/.env.example`, with the Firebase web config and:
 
 ```
-SETUP_EMAIL=you@example.com          # the only email allowed to run first-time setup
+MAX_BUSINESSES=2                     # optional; how many businesses may register (default 2)
 ```
 
 Then:
@@ -75,7 +77,7 @@ the real project. Ctrl+C stops both. `VITE_FIREBASE_EMULATORS=false npm run dev`
 cd frontend && npm run build && cd .. && firebase deploy --only hosting,firestore
 ```
 
-This publishes the site, the security rules (rendered from `firestore.rules.template` with `SETUP_EMAIL`) and
+This publishes the site, the security rules (rendered from `firestore.rules.template` with `MAX_BUSINESSES`) and
 the Firestore indexes. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Checks
@@ -99,7 +101,7 @@ frontend/
   src/components/  ui primitives, layout shell, shared table/filter/search components
   src/lib/         api client, auth context, hooks, query helpers
   vite-plugin-firebase-emulators.ts   starts the emulators with npm run dev
-firestore.rules.template   security rules (scripts/render-rules.mjs fills in SETUP_EMAIL)
+firestore.rules.template   security rules (scripts/render-rules.mjs fills in MAX_BUSINESSES)
 firestore.indexes.json     composite indexes for location-scoped queries
 firebase.json              hosting, rules, indexes, emulator ports
 docs/                      architecture, deployment, GST, reports, API

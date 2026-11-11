@@ -21,7 +21,7 @@ export default function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const [error, setError] = React.useState<string | null>(null)
-  const setup = useQuery({ queryKey: ['setup-status'], queryFn: () => api.get<{ needs_setup: boolean }>('/setup/status') })
+  const setup = useQuery({ queryKey: ['setup-status'], queryFn: () => api.get<{ needs_setup: boolean; can_enroll?: boolean }>('/setup/status') })
   const { register, handleSubmit, formState } = useForm<Values>({ resolver: zodResolver(schema) })
   const from = (location.state as { from?: string } | null)?.from ?? '/'
 
@@ -55,6 +55,11 @@ export default function LoginPage() {
         <p className="border-t border-border pt-4 text-center text-sm text-muted">
           New to the team? <Link to="/signup" className="font-medium text-primary hover:underline">Create an account</Link>
         </p>
+        {setup.data?.can_enroll && (
+          <p className="text-center text-sm text-muted">
+            Own a bookstore? <Link to="/setup" className="font-medium text-primary hover:underline">Register your business</Link>
+          </p>
+        )}
       </form>
     </AuthLayout>
   )

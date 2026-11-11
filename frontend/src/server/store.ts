@@ -10,6 +10,9 @@
  * Writes go through `tx()`: a unit of work over a Firestore transaction. Reads may happen at any point (they
  * see the unit's own pending writes) and all writes are applied together at the end, so a sale, its stock
  * movement, the daily totals and the audit entry either all happen or none do.
+ *
+ * Each business keeps its data under `orgs/{businessId}/…`. Paths in this module are relative to the signed-in
+ * business; a path starting with `/` is global (`/members/{uid}`, `/orgs/{id}`, `/platform/enroll`).
  */
 import {
   type DocumentData,
@@ -28,17 +31,32 @@ import {
   where,
 } from 'firebase/firestore'
 import { db } from './firebase'
-import { BadRequest, financialYear, fyShort, localDate, newId, nowIso } from './core'
+import { BadRequest, Unauthorized, financialYear, fyShort, localDate, newId, nowIso } from './core'
 
 export type Row = DocumentData & { id: string }
 
+// ---------------------------------------------------------------- business (tenant)
+let tenant: string | null = null
+export const currentTenant = () => tenant
+/** Switch the business whose data is read and written; drops cached data of the previous one. */
+export function setTenant(id: string | null) {
+  if (id === tenant) return
+  resetLive()
+  tenant = id
+}
+export function fullPath(path: string): string {
+  if (path.startsWith('/')) return path.slice(1)
+  if (!tenant) throw Unauthorized('Not authenticated', { code: 'not_authenticated' })
+  return `orgs/${tenant}/${path}`
+}
+
 // ---------------------------------------------------------------- queries
 export async function getOne(path: string): Promise<Row | null> {
-  const s = await getDoc(doc(db(), path))
+  const s = await getDoc(doc(db(), fullPath(path)))
   return s.exists() ? ({ ...s.data(), id: s.id } as Row) : null
 }
 export async function find(coll: string, ...cs: QueryConstraint[]): Promise<Row[]> {
-  const s = await getDocs(query(collection(db(), coll), ...cs))
+  const s = await getDocs(query(collection(db(), fullPath(coll)), ...cs))
   return s.docs.map((d) => ({ ...d.data(), id: d.id }) as Row)
 }
 /** Location-scoped query: unrestricted users see everything; others only their locations (rules enforce it too). */
@@ -63,7 +81,7 @@ function listen(key: string, coll: string, cs: QueryConstraint[], explode: boole
   let resolve!: () => void
   const l: Listener = { rows: new Map(), ready: new Promise<void>((r) => (resolve = r)), error: null, unsub: () => {} }
   l.unsub = onSnapshot(
-    query(collection(db(), coll), ...cs),
+    query(collection(db(), fullPath(coll)), ...cs),
     (snap) => {
       const rows = new Map<string, Row>()
       for (const d of snap.docs) {
@@ -149,7 +167,7 @@ export class Uow {
 
   async get(path: string): Promise<Row | null> {
     if (!this.state.has(path)) {
-      const s = await this.t.get(doc(this.fs, path))
+      const s = await this.t.get(doc(this.fs, fullPath(path)))
       this.state.set(path, s.exists() ? s.data() : null)
     }
     const d = this.state.get(path)
@@ -159,7 +177,7 @@ export class Uow {
   async prefetch(paths: (string | null | undefined)[]): Promise<void> {
     const todo = [...new Set(paths.filter((p): p is string => !!p && !this.state.has(p)))]
     await Promise.all(todo.map(async (path) => {
-      const snap = await this.t.get(doc(this.fs, path))
+      const snap = await this.t.get(doc(this.fs, fullPath(path)))
       if (!this.state.has(path)) this.state.set(path, snap.exists() ? snap.data() : null)
     }))
   }
@@ -243,7 +261,7 @@ export class Uow {
 
   flush() {
     for (const [path, p] of this.pending) {
-      const ref = doc(this.fs, path)
+      const ref = doc(this.fs, fullPath(path))
       if (p.kind === 'delete') this.t.delete(ref)
       else if (p.kind === 'set') this.t.set(ref, p.data!)
       else this.t.set(ref, p.data!, { merge: true })
@@ -272,6 +290,7 @@ export function onCommit(fn: () => void) {
  */
 function applyLocal(written: [string, DocumentData | null][]) {
   for (const [path, data] of written) {
+    if (path.startsWith('/')) continue
     const [coll, id] = path.split('/')
     if (coll === 'stock') {
       const l = live.get(`stock:${id.split('~')[0]}`)
@@ -310,5 +329,5 @@ export async function tx<T>(fn: (u: Uow) => Promise<T>): Promise<T> {
 
 /** Non-transactional single write (activity pings). */
 export function put(path: string, data: DocumentData) {
-  return setDoc(doc(db(), path), data, { merge: true })
+  return setDoc(doc(db(), fullPath(path)), data, { merge: true })
 }

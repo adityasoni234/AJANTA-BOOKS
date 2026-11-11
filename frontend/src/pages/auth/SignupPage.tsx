@@ -3,7 +3,7 @@ import { CheckCircle2 } from 'lucide-react'
 import * as React from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
-import { Field, Input } from '@/components/ui/input'
+import { Field, Input, NativeSelect } from '@/components/ui/input'
 import { ApiError, api, errorMessage } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { AuthLayout } from './AuthLayout'
@@ -12,7 +12,10 @@ import { AuthLayout } from './AuthLayout'
 export default function SignupPage() {
   const { me } = useAuth()
   const setup = useQuery({ queryKey: ['setup-status'], queryFn: () => api.get<{ needs_setup: boolean }>('/setup/status') })
-  const [f, setF] = React.useState({ full_name: '', email: '', phone: '', note: '', password: '', confirm: '' })
+  const businesses = useQuery({ queryKey: ['businesses'], queryFn: () => api.get<{ id: string; name: string }[]>('/businesses') })
+  const [f, setF] = React.useState({ org_id: '', full_name: '', email: '', phone: '', note: '', password: '', confirm: '' })
+  const list = businesses.data ?? []
+  const orgId = f.org_id || (list.length === 1 ? list[0].id : '')
   const [errs, setErrs] = React.useState<Record<string, string>>({})
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
@@ -20,11 +23,12 @@ export default function SignupPage() {
 
   if (me) return <Navigate to="/" replace />
   if (setup.data?.needs_setup) return <Navigate to="/setup" replace />
-  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value })
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value })
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     const v: Record<string, string> = {}
+    if (!orgId) v.org_id = 'Choose the business you work at'
     if (f.full_name.trim().length < 2) v.full_name = 'Enter your full name'
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email.trim())) v.email = 'Enter a valid email'
     if (f.password.length < 10) v.password = 'At least 10 characters'
@@ -34,7 +38,7 @@ export default function SignupPage() {
     if (Object.keys(v).length) return
     setBusy(true)
     try {
-      await api.post('/auth/signup', { full_name: f.full_name, email: f.email, phone: f.phone || null, note: f.note || null, password: f.password })
+      await api.post('/auth/signup', { org_id: orgId, full_name: f.full_name, email: f.email, phone: f.phone || null, note: f.note || null, password: f.password })
       setDone(true)
     } catch (e2) {
       if (e2 instanceof ApiError) setErrs(e2.fieldErrors())
@@ -60,10 +64,20 @@ export default function SignupPage() {
     <AuthLayout title="Create an account" subtitle="For staff of this bookstore. The owner approves new accounts.">
       <form onSubmit={submit} className="space-y-3" noValidate>
         {error && <div role="alert" className="rounded-md border border-red-200 bg-danger-soft px-3 py-2 text-sm text-red-700">{error}</div>}
+        {list.length > 1 && (
+          <Field label="Business" htmlFor="su-org" required error={errs.org_id}>
+            <NativeSelect id="su-org" value={f.org_id} onChange={set('org_id')}>
+              <option value="">Choose your bookstore…</option>
+              {list.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </NativeSelect>
+          </Field>
+        )}
+        {list.length === 1 && <p className="text-sm text-muted">Joining <span className="font-medium text-foreground">{list[0].name}</span></p>}
+        {errs.org_id && list.length < 2 && <p className="text-sm text-danger">{errs.org_id}</p>}
         <Field label="Full name" htmlFor="su-name" required error={errs.full_name}><Input id="su-name" autoComplete="name" autoFocus value={f.full_name} onChange={set('full_name')} /></Field>
         <Field label="Email" htmlFor="su-email" required error={errs.email}><Input id="su-email" type="email" autoComplete="email" value={f.email} onChange={set('email')} /></Field>
         <Field label="Phone" htmlFor="su-phone" error={errs.phone}><Input id="su-phone" type="tel" autoComplete="tel" inputMode="tel" value={f.phone} onChange={set('phone')} /></Field>
-        <Field label="Which store do you work at?" htmlFor="su-note" hint="Optional message for the owner"><Input id="su-note" value={f.note} onChange={set('note')} placeholder="e.g. Fort, Mumbai — cashier" /></Field>
+        <Field label="Which branch and job?" htmlFor="su-note" hint="Optional message for the owner"><Input id="su-note" value={f.note} onChange={set('note')} placeholder="e.g. Fort, Mumbai — cashier" /></Field>
         <Field label="Password" htmlFor="su-pw" required error={errs.password} hint="At least 10 characters; three of lowercase, uppercase, digits, symbols.">
           <Input id="su-pw" type="password" autoComplete="new-password" value={f.password} onChange={set('password')} />
         </Field>

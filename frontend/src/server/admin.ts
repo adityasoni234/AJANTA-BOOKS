@@ -5,13 +5,13 @@ import {
 } from 'firebase/auth'
 import { limit, orderBy, where } from 'firebase/firestore'
 import { auth, withSecondaryAuth } from './firebase'
-import { clearProfile, loadCtx, resetAuthWait, watchProfile, type Ctx } from './ctx'
+import { enterTenant, forgetTenant, loadCtx, resetAuthWait, resolveTenant, watchProfile, type Ctx } from './ctx'
 import { Conflict, Forbidden, NotFound, Unauthorized, ValidationFailed, clean, fieldError, isoRange, lc, matches, newId, paginate, passwordProblems } from './core'
 import { DEFAULT_EXPENSE_ACCOUNTS, STATE_CODES, SYSTEM_ACCOUNTS, validGstin } from './ledger'
 import { DEFAULT_POLICY, PERMISSIONS, ROLE_TEMPLATES } from './permissions'
 import { getOrg, getPolicy } from './settings'
 import { publicRoute, route } from './router'
-import { all, byId, findScoped, getOne, resetLive, tx, type Row } from './store'
+import { all, byId, currentTenant, find, findScoped, getOne, tx, type Row } from './store'
 
 const TAX_CLASSES: [string, string, string, boolean][] = [['GST0', 'Nil-rated / Exempt (0%)', '0', true], ['GST5', 'GST 5%', '5', false], ['GST12', 'GST 12%', '12', false], ['GST18', 'GST 18%', '18', false], ['GST28', 'GST 28%', '28', false]]
 const PAYMENT_METHODS: [string, string, string, string, boolean][] = [
@@ -19,6 +19,8 @@ const PAYMENT_METHODS: [string, string, string, string, boolean][] = [
   ['STORE_CREDIT', 'Store Credit', 'STORE_CREDIT', 'STORE_CREDIT', false], ['CREDIT', 'Credit (Pay Later)', 'CREDIT', 'AR', false], ['EXCHANGE', 'Exchange Credit', 'EXCHANGE', 'EXCHANGE_CLEARING', false],
 ]
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+/** How many businesses may register. The same limit is enforced in firestore.rules.template. */
+export const MAX_BUSINESSES = 2
 
 
 async function buildMe(ctx: Ctx) {
@@ -39,11 +41,12 @@ publicRoute('POST', '/auth/login', async ({ body }) => {
   if (!EMAIL_RE.test(email)) throw fieldError('email', 'value is not a valid email address')
   const a = auth()
   const cred = await signInWithEmailAndPassword(a, email, String(body.password ?? ''))
-  const profile = await watchProfile(cred.user.uid)
+  const org = await resolveTenant(cred.user.uid)
+  const profile = org ? await watchProfile(cred.user.uid) : null
   if (!profile || !profile.is_active || profile.can_login === false) {
-    const request = profile ? null : await getOne(`signup_requests/${cred.user.uid}`).catch(() => null)
+    const request = org && !profile ? await getOne(`signup_requests/${cred.user.uid}`).catch(() => null) : null
     await signOut(a)
-    clearProfile()
+    forgetTenant()
     if (request?.status === 'PENDING') throw Unauthorized("Your account is waiting for the owner's approval. You can sign in once it is approved.", { code: 'approval_pending' })
     if (request?.status === 'REJECTED') throw Unauthorized('Your sign-up request was not approved. Contact the store owner.', { code: 'approval_rejected' })
     throw Unauthorized('Invalid email or password', { code: 'invalid_credentials' })
@@ -62,8 +65,7 @@ publicRoute('POST', '/auth/logout', async () => {
     await tx(async (u) => ctx.audit(u, 'auth.logout', { entity_type: 'user', entity_id: ctx.uid }))
   } catch { /* already signed out */ }
   await signOut(auth())
-  clearProfile()
-  resetLive()
+  forgetTenant()
   resetAuthWait()
   return { message: 'Signed out' }
 })
@@ -116,10 +118,36 @@ route('POST', '/auth/sessions/:id/revoke', async () => { throw NotFound('Session
 // ---------------------------------------------------------------- first-run setup
 const statesList = () => Object.entries(STATE_CODES).sort().map(([code, name]) => ({ code, name }))
 
+const enrolled = async () => ((await getOne('/platform/enroll').catch(() => null))?.count as number | undefined) ?? 0
+
+/** needs_setup: no business yet (first visit goes straight to registration); can_enroll: a place is still free. */
 publicRoute('GET', '/setup/status', async () => {
-  const done = await getOne('meta/setup')
-  return { needs_setup: !done, setup_token_required: false, states: statesList() }
+  const count = await enrolled()
+  return { needs_setup: count === 0, can_enroll: count < MAX_BUSINESSES, businesses: count, max_businesses: MAX_BUSINESSES, setup_token_required: false, states: statesList() }
 })
+
+/** Registered businesses, for staff choosing where they work on the sign-up page. */
+publicRoute('GET', '/businesses', async () => {
+  const rows = await find('/orgs')
+  return rows.map((r) => ({ id: r.id, name: r.name as string })).sort((a, b) => a.name.localeCompare(b.name))
+})
+
+const full = () => Conflict(`Registration is closed: the limit of ${MAX_BUSINESSES} businesses has been reached.`, { code: 'enrolment_full' })
+
+/** Create the Firebase login, or sign in to an existing one with the same password (e.g. after a data reset). */
+async function loginFor(email: string, password: string): Promise<string> {
+  const a = auth()
+  try {
+    return (await createUserWithEmailAndPassword(a, email, password)).user.uid
+  } catch (e) {
+    if ((e as { code?: string }).code !== 'auth/email-already-in-use') throw e
+    try {
+      return (await signInWithEmailAndPassword(a, email, password)).user.uid
+    } catch {
+      throw fieldError('email', 'This email is already registered. Sign in instead, or use a different email.')
+    }
+  }
+}
 
 publicRoute('POST', '/setup', async ({ body }) => {
   const email = lc(clean(body.admin_email))
@@ -134,19 +162,20 @@ publicRoute('POST', '/setup', async ({ body }) => {
   if (gstin && !validGstin(gstin)) throw fieldError('gstin', 'Invalid GSTIN (format or checksum)')
   const problems = passwordProblems(String(body.admin_password ?? ''), email)
   if (problems.length) throw ValidationFailed('Password does not meet requirements', { details: problems })
-  if (await getOne('meta/setup')) throw Conflict('Setup has already been completed')
+  if ((await enrolled()) >= MAX_BUSINESSES) throw full()
 
   const a = auth()
-  let uid: string
+  const uid = await loginFor(email, String(body.admin_password))
   try {
-    uid = (await createUserWithEmailAndPassword(a, email, String(body.admin_password))).user.uid
-  } catch (e) {
-    if ((e as { code?: string }).code === 'auth/email-already-in-use') uid = (await signInWithEmailAndPassword(a, email, String(body.admin_password))).user.uid
-    else throw e
-  }
-  try {
+    if (await getOne(`/members/${uid}`).catch(() => null)) throw fieldError('admin_email', 'This email already belongs to a business. Sign in instead.')
+    const orgId = newId()
+    enterTenant(uid, orgId)
     await tx(async (u) => {
-      if (await u.get('meta/setup')) throw Conflict('Setup has already been completed')
+      const count = ((await u.get('/platform/enroll'))?.count as number | undefined) ?? 0
+      if (count >= MAX_BUSINESSES) throw full()
+      u.set('/platform/enroll', { count: count + 1, last: orgId, updated_at: u.at })
+      u.set(`/orgs/${orgId}`, { name: org, owner_uid: uid, created_at: u.at })
+      u.set(`/members/${uid}`, { org_id: orgId, created_at: u.at })
       u.set('meta/setup', { owner_uid: uid, completed_at: u.at })
       u.set('organization/main', { legal_name: org, trade_name: org, gstin, gst_registration_type: gstin ? 'REGULAR' : 'UNREGISTERED', pan: null, address_line1: null, address_line2: null,
         city: null, state: STATE_CODES[state], state_code: state, pincode: null, phone: null, email: null, financial_year_start_month: 4, timezone: 'Asia/Kolkata', currency: 'INR', created_at: u.at })
@@ -169,11 +198,10 @@ publicRoute('POST', '/setup', async ({ body }) => {
     })
   } finally {
     await signOut(a)
-    clearProfile()
-    resetLive()
+    forgetTenant()
     resetAuthWait()
   }
-  return { message: 'Setup complete. Sign in with the administrator account.' }
+  return { message: 'Business registered. Sign in with the owner account.' }
 })
 
 // ---------------------------------------------------------------- self sign-up (owner approves)
@@ -187,17 +215,20 @@ publicRoute('POST', '/auth/signup', async ({ body }) => {
   if (phone && !/^\+?\d{7,15}$/.test(phone)) throw fieldError('phone', 'Enter a valid phone number')
   const problems = passwordProblems(pw, email)
   if (problems.length) throw ValidationFailed('Password does not meet requirements', { details: problems })
-  if (!(await getOne('meta/setup'))) throw Conflict('This store has not been set up yet. The owner must complete first-time setup first.')
+  const orgId = String(body.org_id ?? '')
+  if (!orgId || !(await getOne(`/orgs/${orgId}/meta/setup`).catch(() => null))) throw fieldError('org_id', 'Choose the business you work at')
   const a = auth()
-  const cred = await createUserWithEmailAndPassword(a, email, pw)
+  const uid = await loginFor(email, pw)
   try {
+    if (await getOne(`/members/${uid}`).catch(() => null)) throw fieldError('email', 'This email already has an account. Sign in instead.')
+    enterTenant(uid, orgId)
     await tx(async (u) => {
-      u.set(`signup_requests/${cred.user.uid}`, { email, full_name, phone, note: clean(body.note)?.slice(0, 500) ?? null, status: 'PENDING', created_at: u.at, decided_at: null, decided_by: null, decided_by_name: null, reason: null })
+      u.set(`/members/${uid}`, { org_id: orgId, created_at: u.at })
+      u.set(`signup_requests/${uid}`, { email, full_name, phone, note: clean(body.note)?.slice(0, 500) ?? null, status: 'PENDING', created_at: u.at, decided_at: null, decided_by: null, decided_by_name: null, reason: null })
     })
   } finally {
     await signOut(a)
-    clearProfile()
-    resetLive()
+    forgetTenant()
     resetAuthWait()
   }
   return { message: "Request sent. You can sign in once the owner approves your account." }
@@ -205,8 +236,6 @@ publicRoute('POST', '/auth/signup', async ({ body }) => {
 
 route('GET', '/signup-requests', async ({ query }, ctx) => {
   ctx.require('users.manage')
-  const { find } = await import('./store')
-  const { where } = await import('firebase/firestore')
   const status = query.status ?? 'PENDING'
   const rows = await find('signup_requests', where('status', '==', status))
   return rows.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map((r) => ({ id: r.id, email: r.email, full_name: r.full_name, phone: r.phone ?? null, note: r.note ?? null, status: r.status, created_at: r.created_at }))
@@ -507,6 +536,7 @@ route('POST', '/users', async ({ body }, ctx) => {
   return tx(async (u) => {
     const doc = { ...v, role_id: role.id, role_code: role.code, role_name: role.name, perms: [...role.permissions].sort(), can_login: canLogin, must_change_password: canLogin, last_login_at: null, created_at: u.at }
     u.set(`users/${id}`, doc)
+    if (canLogin) u.set(`/members/${id}`, { org_id: currentTenant(), created_at: u.at })
     ctx.audit(u, 'user.created', { entity_type: 'user', entity_id: id, details: { email: v.email, role: role.code, locations: v.location_ids, all_locations: v.all_locations } })
     return userOut({ ...doc, id })
   })

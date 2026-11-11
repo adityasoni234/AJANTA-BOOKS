@@ -55,6 +55,8 @@ as `idempotency/{kind}~{key}` inside the same transaction, so a retried request 
   codes (`perms`), `all_locations` or `location_ids`, `is_active` and `can_login`.
 * **Rules** (`firestore.rules.template`): each collection requires the matching permission; location-owned
   records must belong to one of the user's locations; ledgers are create-only; users can't raise their own
-  permissions or grant permissions they don't hold; first-run setup is allowed once, for `SETUP_EMAIL` only.
+  permissions or grant permissions they don't hold; each business's data lives under `orgs/{businessId}` and `members/{uid}` ties a login to one business, so one
+  business can't read or write another's; at most `MAX_BUSINESSES` businesses can register (a counter in
+  `platform/enroll` that the rules only let go up by one, within the limit, in the same write as the new business).
 * **Known limit:** calculations (prices, GST, totals) run in the browser. The rules restrict *who* may write what
   and where, but not every figure inside an allowed write. See the README's limitations.

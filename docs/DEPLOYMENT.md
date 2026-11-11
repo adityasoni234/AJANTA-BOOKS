@@ -15,7 +15,7 @@ Firestore security rules decide what each signed-in user may read and write.
 ## Deploying
 
 Prerequisites: Firebase CLI signed in to the account that owns the project (`firebase login`), and
-`frontend/.env.local` containing the Firebase web config and `SETUP_EMAIL`.
+`frontend/.env.local` containing the Firebase web config (and optionally `MAX_BUSINESSES`, default 2).
 
 ```bash
 cd frontend && npm run build && cd ..
@@ -24,16 +24,18 @@ firebase deploy --only hosting,firestore --project ajantabooks-840e7
 
 * `hosting` publishes `frontend/dist`.
 * `firestore` publishes the rules and indexes. The predeploy step renders `firestore.rules` from
-  `firestore.rules.template`, filling in `SETUP_EMAIL` (the only email allowed to run first-time setup).
+  `firestore.rules.template`, filling in `MAX_BUSINESSES` (how many businesses may register).
   The rendered file is gitignored.
 * New composite indexes can take a few minutes to build; until then, store-level (non-owner) users may see an
   index error on the affected screen.
 
 ## First run
 
-The first person to open the site sees **First-time setup**. Setup only succeeds for `SETUP_EMAIL`, and only
-once (the rules allow `meta/setup` to be created a single time). That person becomes the owner with every
-permission and access to all locations. Staff logins are created afterwards under Administration → Users.
+The first person to open the site sees **Register your business**. Up to `MAX_BUSINESSES` (default 2) owners can
+register a business; each becomes that business's owner with every permission and access to all its locations.
+Staff either get logins from the owner (Administration → Users) or create an account on the sign-up page, pick
+their business, and wait for the owner to approve it. To allow more businesses, raise `MAX_BUSINESSES` in both
+`frontend/src/server/admin.ts` and `frontend/.env.local`, then deploy.
 
 ## Required Firebase settings
 

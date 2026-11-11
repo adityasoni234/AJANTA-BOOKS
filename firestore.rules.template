@@ -1,187 +1,224 @@
 rules_version = '2';
 
-// Ajanta Books security rules. `firestore.rules` is generated from this template by
-// `scripts/render-rules.mjs` (SETUP_EMAIL comes from frontend/.env.local and is never committed).
+// Ajanta Books security rules. `firestore.rules` is generated from this template by `scripts/render-rules.mjs`.
 //
-// Model: every staff member has a `users/{uid}` profile holding their role's permission codes (`perms`), and
-// either `all_locations` or a list of `location_ids`. Reads and writes require the matching permission, and
-// location-owned records are limited to the member's locations. Ledgers (stock movements, journals, audit
-// log) can be created but never changed or deleted.
+// Each business keeps its data under `orgs/{org}/…`; `members/{uid}` says which business a login belongs to.
+// At most __MAX_BUSINESSES__ businesses can register (`platform/enroll` counts them; the count and the new business
+// are written in one transaction, and the count can only go up by one and never past the limit).
+//
+// Inside a business, every staff member has a `users/{uid}` profile holding their role's permission codes
+// (`perms`), and either `all_locations` or a list of `location_ids`. Reads and writes require the matching
+// permission, and location-owned records are limited to the member's locations. Ledgers (stock movements,
+// journals, audit log) can be created but never changed or deleted.
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
-    function profPath() { return /databases/$(database)/documents/users/$(request.auth.uid); }
-    function prof() { return get(profPath()).data; }
-    function active() { return signedIn() && exists(profPath()) && prof().is_active == true && prof().can_login != false; }
-    function can(p) { return active() && p in prof().perms; }
-    function canAny(ps) { return active() && prof().perms.hasAny(ps); }
-    function allLoc() { return prof().all_locations == true; }
-    function atLoc(loc) { return loc == null || loc == 'ORG' || allLoc() || loc in prof().location_ids; }
-    function docLocOk(d) {
-      return allLoc()
-        || (!('location_id' in d) && !('location_ids' in d))
-        || ('location_id' in d && atLoc(d.location_id))
-        || ('location_ids' in d && prof().location_ids.hasAny(d.location_ids));
+    function enrollPath() { return /databases/$(database)/documents/platform/enroll; }
+    function enrolledBefore() { return exists(enrollPath()) ? get(enrollPath()).data.count : 0; }
+    // Registering business `org`: the counter goes up by exactly one, stays within the limit and names it.
+    function enrolling(org) {
+      return signedIn() && getAfter(enrollPath()).data.count == enrolledBefore() + 1
+        && getAfter(enrollPath()).data.count <= __MAX_BUSINESSES__ && getAfter(enrollPath()).data.last == org;
     }
-    function setupDone() { return exists(/databases/$(database)/documents/meta/setup); }
-    // The one-time first-run transaction, only by the store owner's authorised email.
-    function settingUp() {
-      return signedIn() && !setupDone()
-        && getAfter(/databases/$(database)/documents/meta/setup).data.owner_uid == request.auth.uid
-        && request.auth.token.email == '__SETUP_EMAIL__';
-    }
-    function readScoped(ps) { return canAny(ps) && docLocOk(resource.data); }
-    function writeScoped(ps) { return canAny(ps) && docLocOk(request.resource.data); }
-
-    // ---------------------------------------------------------------- organisation
-    match /meta/setup { allow read: if true; allow create: if settingUp(); }
-    match /meta/activity { allow read: if active(); allow write: if active(); }
-    match /organization/{id} { allow read: if active(); allow write: if settingUp() || can('settings.manage'); }
-    match /settings/{id} {
-      allow read: if active();
-      allow write: if settingUp() || can('settings.manage') || (id == 'school_order_email_template' && can('schools.manage'));
-    }
-    match /roles/{id} {
-      allow read: if active();
-      allow create: if settingUp() || can('roles.manage');
-      allow update, delete: if can('roles.manage') && resource.data.code != 'OWNER';
-    }
-    match /users/{uid} {
-      allow read: if signedIn() && (request.auth.uid == uid || canAny(['users.view', 'users.manage', 'roles.manage']));
-      allow create: if settingUp() || (can('users.manage') && request.resource.data.perms.hasOnly(prof().perms)
-        && (request.resource.data.all_locations == false || allLoc()));
-      allow update: if (can('users.manage') && request.resource.data.perms.hasOnly(prof().perms)
-          && resource.data.perms.hasOnly(prof().perms) && (request.resource.data.all_locations == false || allLoc()))
-        || (can('roles.manage') && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['perms', 'role_name', 'role_code'])
-          && request.resource.data.perms.hasOnly(prof().perms) && uid != request.auth.uid)
-        || (request.auth.uid == uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['last_login_at', 'must_change_password', 'password_changed_at', 'notif_read_at'])
-          && (request.resource.data.must_change_password == resource.data.must_change_password || request.resource.data.must_change_password == false));
-    }
-    // Self sign-up: a new account may file its own request; only user managers can read others or decide.
-    match /signup_requests/{uid} {
-      allow create: if signedIn() && request.auth.uid == uid && setupDone() && request.resource.data.status == 'PENDING'
-        && request.resource.data.email == request.auth.token.email;
-      allow read: if (signedIn() && request.auth.uid == uid) || can('users.manage');
-      allow update: if can('users.manage');
-    }
-    match /locations/{id} { allow read: if active(); allow write: if settingUp() || can('locations.manage'); }
-    match /counters/{id} { allow read, write: if active(); }
-    match /audit_logs/{id} {
-      allow read: if can('audit.view') && docLocOk(resource.data);
-      allow create: if (active() || settingUp()) && request.resource.data.actor_id == request.auth.uid;
-    }
-    match /notifications/{id} {
-      allow read, update: if active() && resource.data.user_id == request.auth.uid;
-      allow create: if active();
-    }
-    match /approvals/{id} {
-      allow read: if readScoped(['approvals.view', 'pos.sell', 'purchasing.create', 'inventory.adjust', 'transfers.create', 'expenses.create', 'returns.create']);
-      allow create, update: if active();
+    function canIn(o, p) {
+      let path = /databases/$(database)/documents/orgs/$(o)/users/$(request.auth.uid);
+      return signedIn() && exists(path) && get(path).data.is_active == true && p in get(path).data.perms;
     }
 
-    // ---------------------------------------------------------------- reference data
-    match /tax_classes/{id} { allow read: if active(); allow write: if settingUp() || can('catalog.master_data'); }
-    match /payment_methods/{id} { allow read: if active(); allow write: if settingUp() || can('settings.manage'); }
-    match /accounts/{id} { allow read: if active(); allow write: if settingUp() || can('accounting.manage'); }
-    match /expense_categories/{id} { allow read: if active(); allow write: if settingUp() || canAny(['accounting.manage', 'expenses.create']); }
-    match /categories/{id} { allow read: if active(); allow write: if canAny(['catalog.master_data', 'catalog.create', 'catalog.edit', 'catalog.import', 'schools.manage']); }
-    match /publishers/{id} { allow read: if active(); allow write: if canAny(['catalog.master_data', 'catalog.create', 'catalog.edit', 'catalog.import', 'schools.manage']); }
-    match /authors/{id} { allow read: if active(); allow write: if canAny(['catalog.master_data', 'catalog.create', 'catalog.edit', 'catalog.import', 'schools.manage']); }
-    match /books/{shard} {
-      allow read: if active();
-      allow write: if canAny(['catalog.create', 'catalog.edit', 'catalog.price_edit', 'catalog.archive', 'catalog.merge', 'catalog.import', 'schools.manage', 'purchasing.create', 'purchasing.receive']);
+    match /platform/enroll {
+      allow read: if true;
+      allow create, update: if signedIn() && request.resource.data.count == enrolledBefore() + 1 && request.resource.data.count <= __MAX_BUSINESSES__
+        && !exists(/databases/$(database)/documents/orgs/$(request.resource.data.last))
+        && existsAfter(/databases/$(database)/documents/orgs/$(request.resource.data.last));
     }
-    match /book_images/{id} { allow read: if active(); allow write: if canAny(['catalog.create', 'catalog.edit']); }
-    match /price_history/{id} { allow read: if active(); allow create: if canAny(['catalog.create', 'catalog.edit', 'catalog.price_edit', 'catalog.import', 'schools.manage']); }
-    match /suppliers/{id} {
-      allow read: if canAny(['suppliers.view', 'purchasing.view', 'finance.view', 'schools.manage', 'catalog.view']);
-      allow write: if canAny(['suppliers.manage', 'schools.manage', 'finance.manage', 'purchasing.receive', 'purchasing.return']);
+    // Which business a login belongs to: set by the person themself (registering, signing up) or by that
+    // business's user managers (adding staff). It cannot be moved to another business afterwards.
+    match /members/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create: if signedIn() && existsAfter(/databases/$(database)/documents/orgs/$(request.resource.data.org_id))
+        && (request.auth.uid == uid || canIn(request.resource.data.org_id, 'users.manage'));
+      allow delete: if canIn(resource.data.org_id, 'users.manage');
     }
-    match /registers/{id} {
-      allow read: if canAny(['pos.sell', 'registers.operate', 'registers.manage', 'dashboard.view']) && docLocOk(resource.data);
-      allow write: if (can('registers.manage') && docLocOk(request.resource.data)) || can('locations.manage');
-      // opening/closing a session marks the register; cashiers may change only that field
-      allow update: if canAny(['registers.operate', 'registers.manage']) && docLocOk(resource.data)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['open_session_id']);
-    }
-    match /schools/{id} { allow read: if can('schools.view'); allow write: if can('schools.manage'); }
-    match /book_lists/{id} { allow read: if can('schools.view'); allow write: if can('schools.manage'); }
 
-    // ---------------------------------------------------------------- stock
-    match /stock/{id} {
-      allow read: if canAny(['inventory.view', 'pos.sell', 'schools.view', 'dashboard.view', 'purchasing.view', 'transfers.view', 'catalog.view']) && atLoc(resource.data.location_id);
-      allow write: if canAny(['inventory.adjust', 'inventory.approve', 'inventory.stocktake', 'inventory.settings', 'inventory.copies', 'pos.sell', 'pos.void', 'returns.create', 'returns.approve',
-          'purchasing.receive', 'purchasing.return', 'transfers.dispatch', 'transfers.receive', 'catalog.merge', 'catalog.price_edit'])
-        && (atLoc(request.resource.data.location_id) || canAny(['transfers.dispatch', 'transfers.receive']));
-    }
-    match /stock_moves/{id} {
-      allow read: if readScoped(['inventory.view', 'reports.view', 'catalog.view']);
-      allow create: if active() && docLocOk(request.resource.data);
-    }
-    match /copies/{id} {
-      allow read: if readScoped(['inventory.view', 'inventory.copies', 'pos.sell']);
-      allow write: if canAny(['inventory.copies', 'purchasing.receive', 'pos.sell', 'returns.create', 'transfers.dispatch', 'transfers.receive', 'inventory.adjust', 'inventory.approve']);
-    }
-    match /adjustments/{id} { allow read: if readScoped(['inventory.view']); allow write: if writeScoped(['inventory.adjust', 'inventory.approve', 'inventory.stocktake']); }
-    match /stocktakes/{id} { allow read: if readScoped(['inventory.view', 'inventory.stocktake']); allow write: if writeScoped(['inventory.stocktake']); }
+    match /orgs/{org} {
+      // Business names are listed on the sign-up page.
+      allow read: if true;
+      allow create: if enrolling(org) && request.resource.data.owner_uid == request.auth.uid;
+      allow update: if can('settings.manage') && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name']);
 
-    // ---------------------------------------------------------------- purchasing & transfers
-    match /purchase_orders/{id} {
-      allow read: if readScoped(['purchasing.view', 'schools.view', 'finance.view']);
-      allow write: if writeScoped(['purchasing.create', 'purchasing.approve', 'purchasing.receive', 'schools.manage']);
-    }
-    match /goods_receipts/{id} {
-      allow read: if readScoped(['purchasing.view', 'finance.view']);
-      allow create: if writeScoped(['purchasing.receive']);
-      allow update: if can('finance.manage') && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['supplier_invoice_id']);
-    }
-    match /supplier_invoices/{id} { allow read: if canAny(['finance.view', 'purchasing.view']); allow write: if can('finance.manage'); }
-    match /supplier_payments/{id} { allow read: if canAny(['finance.view', 'purchasing.view']); allow create: if can('finance.manage'); }
-    match /supplier_returns/{id} { allow read: if readScoped(['purchasing.view', 'finance.view']); allow create: if writeScoped(['purchasing.return']); }
-    match /transfers/{id} {
-      allow read: if readScoped(['transfers.view', 'transfers.create']);
-      allow write: if writeScoped(['transfers.create', 'transfers.approve', 'transfers.dispatch', 'transfers.receive']);
-    }
-    match /school_orders/{id} { allow read: if can('schools.view'); allow create: if can('schools.manage'); }
+      function profPath() { return /databases/$(database)/documents/orgs/$(org)/users/$(request.auth.uid); }
+      function prof() { return get(profPath()).data; }
+      function active() { return signedIn() && exists(profPath()) && prof().is_active == true && prof().can_login != false; }
+      function can(p) { return active() && p in prof().perms; }
+      function canAny(ps) { return active() && prof().perms.hasAny(ps); }
+      function allLoc() { return prof().all_locations == true; }
+      function atLoc(loc) { return loc == null || loc == 'ORG' || allLoc() || loc in prof().location_ids; }
+      function docLocOk(d) {
+        return allLoc()
+          || (!('location_id' in d) && !('location_ids' in d))
+          || ('location_id' in d && atLoc(d.location_id))
+          || ('location_ids' in d && prof().location_ids.hasAny(d.location_ids));
+      }
+      function setupDone() { return exists(/databases/$(database)/documents/orgs/$(org)/meta/setup); }
+      // The business's one-time registration transaction, by the owner who is registering it.
+      function settingUp() {
+        return signedIn() && !setupDone()
+          && getAfter(/databases/$(database)/documents/orgs/$(org)/meta/setup).data.owner_uid == request.auth.uid
+          && getAfter(/databases/$(database)/documents/orgs/$(org)).data.owner_uid == request.auth.uid;
+      }
+      function readScoped(ps) { return canAny(ps) && docLocOk(resource.data); }
+      function writeScoped(ps) { return canAny(ps) && docLocOk(request.resource.data); }
 
-    // ---------------------------------------------------------------- sales
-    match /customers/{shard} {
-      allow read: if canAny(['customers.view', 'pos.sell', 'returns.create', 'finance.view']);
-      allow write: if canAny(['customers.manage', 'pos.sell', 'returns.create', 'finance.manage', 'pos.void']);
-    }
-    match /customer_ledger/{id} {
-      allow read: if canAny(['customers.view', 'finance.view']);
-      allow create: if canAny(['customers.manage', 'pos.sell', 'returns.create', 'finance.manage', 'pos.void']);
-    }
-    match /register_sessions/{id} {
-      allow read: if readScoped(['registers.operate', 'registers.manage', 'pos.sell', 'finance.view', 'reports.view']);
-      allow write: if writeScoped(['registers.operate', 'registers.manage', 'pos.sell', 'returns.create', 'pos.void']);
-    }
-    match /sales/{id} {
-      allow read: if readScoped(['sales.view', 'pos.sell', 'returns.create', 'customers.view']);
-      allow create: if writeScoped(['pos.sell']);
-      allow update: if writeScoped(['pos.void', 'returns.create', 'pos.sell']);
-    }
-    match /returns/{id} { allow read: if readScoped(['sales.view', 'returns.create']); allow write: if writeScoped(['returns.create', 'returns.approve']); }
-    match /discount_approvals/{id} { allow read, write: if active(); }
-    match /payments/{id} {
-      allow read: if readScoped(['finance.view', 'sales.view', 'registers.manage']);
-      allow create: if writeScoped(['pos.sell', 'returns.create', 'returns.approve', 'pos.void', 'finance.manage']);
-      allow update: if writeScoped(['finance.manage', 'pos.sell']) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['journal_entry_id']);
-    }
-    match /idempotency/{id} { allow read: if active(); allow create: if active(); }
+      // ---------------------------------------------------------------- organisation
+      match /meta/setup { allow read: if true; allow create: if settingUp(); }
+      match /meta/activity { allow read: if active(); allow write: if active(); }
+      match /organization/{id} { allow read: if active(); allow write: if settingUp() || can('settings.manage'); }
+      match /settings/{id} {
+        allow read: if active();
+        allow write: if settingUp() || can('settings.manage') || (id == 'school_order_email_template' && can('schools.manage'));
+      }
+      match /roles/{id} {
+        allow read: if active();
+        allow create: if settingUp() || can('roles.manage');
+        allow update, delete: if can('roles.manage') && resource.data.code != 'OWNER';
+      }
+      match /users/{uid} {
+        allow read: if signedIn() && (request.auth.uid == uid || canAny(['users.view', 'users.manage', 'roles.manage']));
+        allow create: if settingUp() || (can('users.manage') && request.resource.data.perms.hasOnly(prof().perms)
+          && (request.resource.data.all_locations == false || allLoc()));
+        allow update: if (can('users.manage') && request.resource.data.perms.hasOnly(prof().perms)
+            && resource.data.perms.hasOnly(prof().perms) && (request.resource.data.all_locations == false || allLoc()))
+          || (can('roles.manage') && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['perms', 'role_name', 'role_code'])
+            && request.resource.data.perms.hasOnly(prof().perms) && uid != request.auth.uid)
+          || (request.auth.uid == uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['last_login_at', 'must_change_password', 'password_changed_at', 'notif_read_at'])
+            && (request.resource.data.must_change_password == resource.data.must_change_password || request.resource.data.must_change_password == false));
+      }
+      // Self sign-up: a new account may file its own request; only user managers can read others or decide.
+      match /signup_requests/{uid} {
+        allow create: if signedIn() && request.auth.uid == uid && setupDone() && request.resource.data.status == 'PENDING'
+          && request.resource.data.email == request.auth.token.email;
+        allow read: if (signedIn() && request.auth.uid == uid) || can('users.manage');
+        allow update: if can('users.manage');
+      }
+      match /locations/{id} { allow read: if active(); allow write: if settingUp() || can('locations.manage'); }
+      match /counters/{id} { allow read, write: if active(); }
+      match /audit_logs/{id} {
+        allow read: if can('audit.view') && docLocOk(resource.data);
+        allow create: if (active() || settingUp()) && request.resource.data.actor_id == request.auth.uid;
+      }
+      match /notifications/{id} {
+        allow read, update: if active() && resource.data.user_id == request.auth.uid;
+        allow create: if active();
+      }
+      match /approvals/{id} {
+        allow read: if readScoped(['approvals.view', 'pos.sell', 'purchasing.create', 'inventory.adjust', 'transfers.create', 'expenses.create', 'returns.create']);
+        allow create, update: if active();
+      }
 
-    // ---------------------------------------------------------------- finance & reporting
-    match /journals/{id} {
-      allow read: if canAny(['accounting.view', 'finance.view', 'reports.financial']);
-      allow create: if active();
-      allow update: if active() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reversed_by_id']) && resource.data.reversed_by_id == null;
+      // ---------------------------------------------------------------- reference data
+      match /tax_classes/{id} { allow read: if active(); allow write: if settingUp() || can('catalog.master_data'); }
+      match /payment_methods/{id} { allow read: if active(); allow write: if settingUp() || can('settings.manage'); }
+      match /accounts/{id} { allow read: if active(); allow write: if settingUp() || can('accounting.manage'); }
+      match /expense_categories/{id} { allow read: if active(); allow write: if settingUp() || canAny(['accounting.manage', 'expenses.create']); }
+      match /categories/{id} { allow read: if active(); allow write: if canAny(['catalog.master_data', 'catalog.create', 'catalog.edit', 'catalog.import', 'schools.manage']); }
+      match /publishers/{id} { allow read: if active(); allow write: if canAny(['catalog.master_data', 'catalog.create', 'catalog.edit', 'catalog.import', 'schools.manage']); }
+      match /authors/{id} { allow read: if active(); allow write: if canAny(['catalog.master_data', 'catalog.create', 'catalog.edit', 'catalog.import', 'schools.manage']); }
+      match /books/{shard} {
+        allow read: if active();
+        allow write: if canAny(['catalog.create', 'catalog.edit', 'catalog.price_edit', 'catalog.archive', 'catalog.merge', 'catalog.import', 'schools.manage', 'purchasing.create', 'purchasing.receive']);
+      }
+      match /book_images/{id} { allow read: if active(); allow write: if canAny(['catalog.create', 'catalog.edit']); }
+      match /price_history/{id} { allow read: if active(); allow create: if canAny(['catalog.create', 'catalog.edit', 'catalog.price_edit', 'catalog.import', 'schools.manage']); }
+      match /suppliers/{id} {
+        allow read: if canAny(['suppliers.view', 'purchasing.view', 'finance.view', 'schools.manage', 'catalog.view']);
+        allow write: if canAny(['suppliers.manage', 'schools.manage', 'finance.manage', 'purchasing.receive', 'purchasing.return']);
+      }
+      match /registers/{id} {
+        allow read: if canAny(['pos.sell', 'registers.operate', 'registers.manage', 'dashboard.view']) && docLocOk(resource.data);
+        allow write: if (can('registers.manage') && docLocOk(request.resource.data)) || can('locations.manage');
+        // opening/closing a session marks the register; cashiers may change only that field
+        allow update: if canAny(['registers.operate', 'registers.manage']) && docLocOk(resource.data)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['open_session_id']);
+      }
+      match /schools/{id} { allow read: if can('schools.view'); allow write: if can('schools.manage'); }
+      match /book_lists/{id} { allow read: if can('schools.view'); allow write: if can('schools.manage'); }
+
+      // ---------------------------------------------------------------- stock
+      match /stock/{id} {
+        allow read: if canAny(['inventory.view', 'pos.sell', 'schools.view', 'dashboard.view', 'purchasing.view', 'transfers.view', 'catalog.view']) && atLoc(resource.data.location_id);
+        allow write: if canAny(['inventory.adjust', 'inventory.approve', 'inventory.stocktake', 'inventory.settings', 'inventory.copies', 'pos.sell', 'pos.void', 'returns.create', 'returns.approve',
+            'purchasing.receive', 'purchasing.return', 'transfers.dispatch', 'transfers.receive', 'catalog.merge', 'catalog.price_edit'])
+          && (atLoc(request.resource.data.location_id) || canAny(['transfers.dispatch', 'transfers.receive']));
+      }
+      match /stock_moves/{id} {
+        allow read: if readScoped(['inventory.view', 'reports.view', 'catalog.view']);
+        allow create: if active() && docLocOk(request.resource.data);
+      }
+      match /copies/{id} {
+        allow read: if readScoped(['inventory.view', 'inventory.copies', 'pos.sell']);
+        allow write: if canAny(['inventory.copies', 'purchasing.receive', 'pos.sell', 'returns.create', 'transfers.dispatch', 'transfers.receive', 'inventory.adjust', 'inventory.approve']);
+      }
+      match /adjustments/{id} { allow read: if readScoped(['inventory.view']); allow write: if writeScoped(['inventory.adjust', 'inventory.approve', 'inventory.stocktake']); }
+      match /stocktakes/{id} { allow read: if readScoped(['inventory.view', 'inventory.stocktake']); allow write: if writeScoped(['inventory.stocktake']); }
+
+      // ---------------------------------------------------------------- purchasing & transfers
+      match /purchase_orders/{id} {
+        allow read: if readScoped(['purchasing.view', 'schools.view', 'finance.view']);
+        allow write: if writeScoped(['purchasing.create', 'purchasing.approve', 'purchasing.receive', 'schools.manage']);
+      }
+      match /goods_receipts/{id} {
+        allow read: if readScoped(['purchasing.view', 'finance.view']);
+        allow create: if writeScoped(['purchasing.receive']);
+        allow update: if can('finance.manage') && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['supplier_invoice_id']);
+      }
+      match /supplier_invoices/{id} { allow read: if canAny(['finance.view', 'purchasing.view']); allow write: if can('finance.manage'); }
+      match /supplier_payments/{id} { allow read: if canAny(['finance.view', 'purchasing.view']); allow create: if can('finance.manage'); }
+      match /supplier_returns/{id} { allow read: if readScoped(['purchasing.view', 'finance.view']); allow create: if writeScoped(['purchasing.return']); }
+      match /transfers/{id} {
+        allow read: if readScoped(['transfers.view', 'transfers.create']);
+        allow write: if writeScoped(['transfers.create', 'transfers.approve', 'transfers.dispatch', 'transfers.receive']);
+      }
+      match /school_orders/{id} { allow read: if can('schools.view'); allow create: if can('schools.manage'); }
+
+      // ---------------------------------------------------------------- sales
+      match /customers/{shard} {
+        allow read: if canAny(['customers.view', 'pos.sell', 'returns.create', 'finance.view']);
+        allow write: if canAny(['customers.manage', 'pos.sell', 'returns.create', 'finance.manage', 'pos.void']);
+      }
+      match /customer_ledger/{id} {
+        allow read: if canAny(['customers.view', 'finance.view']);
+        allow create: if canAny(['customers.manage', 'pos.sell', 'returns.create', 'finance.manage', 'pos.void']);
+      }
+      match /register_sessions/{id} {
+        allow read: if readScoped(['registers.operate', 'registers.manage', 'pos.sell', 'finance.view', 'reports.view']);
+        allow write: if writeScoped(['registers.operate', 'registers.manage', 'pos.sell', 'returns.create', 'pos.void']);
+      }
+      match /sales/{id} {
+        allow read: if readScoped(['sales.view', 'pos.sell', 'returns.create', 'customers.view']);
+        allow create: if writeScoped(['pos.sell']);
+        allow update: if writeScoped(['pos.void', 'returns.create', 'pos.sell']);
+      }
+      match /returns/{id} { allow read: if readScoped(['sales.view', 'returns.create']); allow write: if writeScoped(['returns.create', 'returns.approve']); }
+      match /discount_approvals/{id} { allow read, write: if active(); }
+      match /payments/{id} {
+        allow read: if readScoped(['finance.view', 'sales.view', 'registers.manage']);
+        allow create: if writeScoped(['pos.sell', 'returns.create', 'returns.approve', 'pos.void', 'finance.manage']);
+        allow update: if writeScoped(['finance.manage', 'pos.sell']) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['journal_entry_id']);
+      }
+      match /idempotency/{id} { allow read: if active(); allow create: if active(); }
+
+      // ---------------------------------------------------------------- finance & reporting
+      match /journals/{id} {
+        allow read: if canAny(['accounting.view', 'finance.view', 'reports.financial']);
+        allow create: if active();
+        allow update: if active() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reversed_by_id']) && resource.data.reversed_by_id == null;
+      }
+      match /expenses/{id} { allow read: if readScoped(['expenses.view', 'finance.view']); allow write: if writeScoped(['expenses.create', 'expenses.approve']); }
+      match /expense_receipts/{id} { allow read: if readScoped(['expenses.view']); allow write: if writeScoped(['expenses.create']); }
+      match /bank_reconciliations/{id} { allow read: if can('finance.view'); allow create: if can('finance.manage'); }
+      match /fund_transfers/{id} { allow read: if can('finance.view'); allow create: if can('finance.manage'); }
+      match /daily/{id} { allow read: if readScoped(['dashboard.view', 'reports.view', 'accounting.view', 'finance.view']); allow write: if active() && docLocOk(request.resource.data); }
+      match /monthly/{id} { allow read: if readScoped(['dashboard.view', 'reports.view', 'accounting.view', 'finance.view']); allow write: if active() && docLocOk(request.resource.data); }
     }
-    match /expenses/{id} { allow read: if readScoped(['expenses.view', 'finance.view']); allow write: if writeScoped(['expenses.create', 'expenses.approve']); }
-    match /expense_receipts/{id} { allow read: if readScoped(['expenses.view']); allow write: if writeScoped(['expenses.create']); }
-    match /bank_reconciliations/{id} { allow read: if can('finance.view'); allow create: if can('finance.manage'); }
-    match /fund_transfers/{id} { allow read: if can('finance.view'); allow create: if can('finance.manage'); }
-    match /daily/{id} { allow read: if readScoped(['dashboard.view', 'reports.view', 'accounting.view', 'finance.view']); allow write: if active() && docLocOk(request.resource.data); }
-    match /monthly/{id} { allow read: if readScoped(['dashboard.view', 'reports.view', 'accounting.view', 'finance.view']); allow write: if active() && docLocOk(request.resource.data); }
   }
 }
