@@ -52,6 +52,7 @@ async function request(u: Uow, ctx: Ctx, t: Row): Promise<Row> {
 async function approve(u: Uow, ctx: Ctx, t: Row): Promise<Row> {
   if (t.status !== 'REQUESTED') throw Conflict('Transfer is not awaiting approval')
   const st = new StockTx(u, { uid: ctx.uid, name: ctx.name })
+  await st.prefetch((t.lines as Row[]).map((l) => [t.source_location_id, l.book_id]))
   const books = await entries('books')
   for (const l of t.lines as Row[]) {
     const b = await st.bal(t.source_location_id, l.book_id)
@@ -184,6 +185,7 @@ route('POST', '/transfers/:id/dispatch', async ({ params, body }, ctx) => {
     if (t.status !== 'APPROVED') throw Conflict('Transfer must be approved (and not yet dispatched) to dispatch')
     const spec = new Map(((body.lines ?? []) as Row[]).map((l) => [String(l.line_id), l]))
     const st = new StockTx(u, { uid: ctx.uid, name: ctx.name })
+    await st.prefetch((t.lines as Row[]).flatMap((l) => [[t.source_location_id, l.book_id], [t.dest_location_id, l.book_id]] as [string, string][]))
     let value = ZERO
     const ls = (t.lines as Row[]).map((l) => ({ ...l }))
     for (const l of ls) {
@@ -238,6 +240,7 @@ route('POST', '/transfers/:id/receive', async ({ params, body, headers }, ctx) =
     if (!['IN_TRANSIT', 'PARTIALLY_RECEIVED'].includes(t.status)) throw Conflict('Transfer is not awaiting receipt')
     const spec = new Map(((body.lines ?? []) as Row[]).map((l) => [String(l.line_id), l]))
     const st = new StockTx(u, { uid: ctx.uid, name: ctx.name })
+    await st.prefetch((t.lines as Row[]).map((l) => [t.dest_location_id, l.book_id]))
     const r = ref(t)
     const ls = (t.lines as Row[]).map((l) => ({ ...l, copies: [...(l.copies ?? [])] }) as Row)
     const details: Row[] = []

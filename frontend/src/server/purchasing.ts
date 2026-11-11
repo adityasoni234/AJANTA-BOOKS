@@ -390,6 +390,7 @@ route('POST', '/goods-receipts', async ({ body, headers }, ctx) => {
     const number = await u.nextNumber('GRN')
     const ref = { type: 'GRN', id, number }
     const st = new StockTx(u, { uid: ctx.uid, name: ctx.name })
+    await Promise.all([st.prefetch(prepared.map((p) => [locationId, p.book.id])), u.prefetch(prepared.map((p) => shardPath('books', p.book.id)))])
     const grnLines: Row[] = []
     for (let i = 0; i < prepared.length; i++) {
       const { book, pol, rec, dmg, cost } = prepared[i]
@@ -559,6 +560,7 @@ route('POST', '/supplier-returns', async ({ body, headers }, ctx) => {
     const id = newId(), number = await u.nextNumber('PRN')
     const ref = { type: 'SUPPLIER_RETURN', id, number }
     const st = new StockTx(u, { uid: ctx.uid, name: ctx.name })
+    await st.prefetch(lines.map((ln) => [locationId, String(ln.book_id)]))
     let value = ZERO
     const out: Row[] = []
     for (const ln of lines) {

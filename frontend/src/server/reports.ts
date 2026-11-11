@@ -11,7 +11,7 @@ import { D, Forbidden, ValidationFailed, ZERO, addDays, daysBetween, isoRange, l
 import { route } from './router'
 import { getPolicy } from './settings'
 import { balancesAt, valuedQty } from './stock'
-import { all, entries, find, findScoped, type Row } from './store'
+import { all, entries, find, findScoped, onCommit, type Row } from './store'
 import { toCsv } from './catalog'
 
 type Scope = string[] | null
@@ -27,10 +27,19 @@ export function range(q: { date_from?: string; date_to?: string }): [string, str
 }
 
 // ---------------------------------------------------------------- summary documents
+// Summary reads are reused for a short while (and dropped whenever anything is saved), so one screen asking for
+// the same figures several times costs one query.
+const memo = new Map<string, { at: number; rows: Promise<Row[]> }>()
+onCommit(() => memo.clear())
 async function summaryDocs(coll: 'daily' | 'monthly', scope: Scope, from: string, to: string): Promise<Row[]> {
+  const key = `${coll}|${scope?.join(',') ?? '*'}|${from}|${to}`
+  const hit = memo.get(key)
+  if (hit && Date.now() - hit.at < 20_000) return hit.rows
   const cs = [where('period', '>=', from), where('period', '<=', to)]
-  if (scope === null) return find(coll, ...cs)
-  return findScoped(coll, scope, 'location_id', ...cs)
+  const rows = scope === null ? find(coll, ...cs) : findScoped(coll, scope, 'location_id', ...cs)
+  memo.set(key, { at: Date.now(), rows })
+  rows.catch(() => memo.delete(key))
+  return rows
 }
 /** Daily docs for [d1, d2], using monthly docs for whole months inside the range. */
 async function periodDocs(scope: Scope, d1: string, d2: string): Promise<Row[]> {
@@ -119,9 +128,9 @@ async function salesBy(d1: string, d2: string, scope: Scope, dim: string, lim = 
     const books = await entries('books')
     const cats = new Map((await all('categories')).map((c) => [c.id, c.name]))
     for (const [id, v] of merge(ds, dim === 'book' ? 'book' : 'cat')) {
-      const units = Number(v.qty ?? 0)
-      if (!units && !D(v.net as Num).gt(0)) continue
-      const net = D(v.net as Num), cogs = D(v.cogs as Num)
+      const units = Number(v.qty ?? 0) - Number(v.ret_qty ?? 0)
+      const net = D(v.net as Num).minus(D(v.ret_net as Num)), cogs = D(v.cogs as Num)
+      if (units <= 0 && !net.gt(0)) continue
       const row = { key: id === 'NONE' ? null : id, label: dim === 'book' ? (books.get(id)?.title ?? id) : id === 'NONE' ? 'Uncategorised' : (cats.get(id) ?? 'Uncategorised'), transactions: 0, units,
         net_sales: s2(net), invoice_value: s2(net), cogs: s2(cogs), gross_profit: s2(net.minus(cogs)) } as unknown as Row
       if (dim === 'book') row.sku = books.get(id)?.sku ?? null
@@ -144,7 +153,7 @@ async function paymentsByMethod(d1: string, d2: string, scope: Scope, docs?: Row
   const pay = merge(ds, 'pay')
   return methods.filter((m) => pay.has(m.code)).map((m) => {
     const v = pay.get(m.code)!
-    return { code: m.code, method: m.name, collected: s2(v.amount as Num), refunded: '0.00', net: s2(v.amount as Num), count: Number(v.count ?? 0) }
+    return { code: m.code, method: m.name, collected: s2(v.amount as Num), refunded: s2(v.refund as Num), net: s2(D(v.amount as Num).minus(D(v.refund as Num))), count: Number(v.count ?? 0) }
   })
 }
 
@@ -217,14 +226,11 @@ export async function stockAnalysis(scope: Scope, kind: string, lim = 200) {
   }
   const days = ({ fast: 30, slow: policy.slow_moving_days, dead: policy.dead_stock_days, excess: 90 } as Record<string, number>)[kind]
   const since = addDays(today, -days)
-  for (const l of locs) {
-    const docs = await periodDocs([l.id], since, today)
+  const perLoc = await Promise.all(locs.map(async (l) => ({ l, docs: await periodDocs([l.id], since, today), bals: await balancesAt(l.id), raw: await (await import('./store')).stockAt(l.id) })))
+  for (const { l, docs, bals, raw } of perLoc) {
     const sold = merge(docs, 'book')
     const lastSale = new Map<string, string>()
     for (const d of docs.filter((x) => x.period.length === 10)) for (const id of Object.keys(d.book ?? {})) if ((lastSale.get(id) ?? '') < d.period) lastSale.set(id, d.period)
-    const bals = await balancesAt(l.id)
-    const stockRows = (await import('./store')).stockAt(l.id)
-    const raw = await stockRows
     for (const b of bals.values()) {
       const book = books.get(b.book_id)
       if (!book) continue
@@ -556,16 +562,18 @@ route('GET', '/dashboard', async ({ query }, ctx) => {
   const period: Record<string, unknown> = await salesSummary(d1, d2, scope, docs)
   const todayS: Record<string, unknown> = await salesSummary(today, today, scope, todayDocs)
   if (!fin) for (const s of [period, todayS]) for (const k of ['cogs', 'gross_profit', 'gross_margin_pct']) s[k] = null
-  const low = await stockAnalysis(scope, 'low', 500)
+  const [low, outOf, dead, slow, trend, payments, topBooks, byCat, outlets, pending, expRows, regRows] = await Promise.all([
+    stockAnalysis(scope, 'low', 500), stockAnalysis(scope, 'out', 500), stockAnalysis(scope, 'dead', 500), stockAnalysis(scope, 'slow', 5),
+    salesTrend(d1, d2, scope), paymentsByMethod(d1, d2, scope, docs), salesBy(d1, d2, scope, 'book', 8, docs), salesBy(d1, d2, scope, 'category', 8, docs),
+    salesBy(d1, d2, scope, 'location', 500, docs), pendingCounts(scope), ctx.has('expenses.view') ? expenseReport(d1, d2, scope) : Promise.resolve(null),
+    ctx.has('registers.manage') ? registerReport(d1, d2, scope) : Promise.resolve(null),
+  ])
   const out: Record<string, unknown> = {
     period: { from: d1, to: d2 }, scope: scope === null ? 'organisation' : 'locations', today: todayS, summary: period,
-    trend: await salesTrend(d1, d2, scope), payments: await paymentsByMethod(d1, d2, scope, docs),
-    top_books: stripProfit(ctx, await salesBy(d1, d2, scope, 'book', 8, docs)), by_category: stripProfit(ctx, await salesBy(d1, d2, scope, 'category', 8, docs)),
-    outlets: stripProfit(ctx, await salesBy(d1, d2, scope, 'location', 500, docs)),
-    alerts: { low: low.length, out: (await stockAnalysis(scope, 'out', 500)).length }, low_stock: low.slice(0, 8),
-    dead_stock_count: (await stockAnalysis(scope, 'dead', 500)).length, slow_moving: await stockAnalysis(scope, 'slow', 5), pending: await pendingCounts(scope),
-    expenses: ctx.has('expenses.view') ? s2(sum((await expenseReport(d1, d2, scope)).map((r) => r.amount))) : null,
-    registers: ctx.has('registers.manage') ? (await registerReport(d1, d2, scope)).filter((r) => r.status === 'OPEN' || (r.variance && !D(r.variance).eq(0))).slice(0, 10) : null,
+    trend, payments, top_books: stripProfit(ctx, topBooks), by_category: stripProfit(ctx, byCat), outlets: stripProfit(ctx, outlets),
+    alerts: { low: low.length, out: outOf.length }, low_stock: low.slice(0, 8), dead_stock_count: dead.length, slow_moving: slow, pending,
+    expenses: expRows ? s2(sum(expRows.map((r) => r.amount))) : null,
+    registers: regRows ? regRows.filter((r) => r.status === 'OPEN' || (r.variance && !D(r.variance).eq(0))).slice(0, 10) : null,
   }
   const inv = await inventoryValuation(scope)
   out.inventory = {
@@ -602,21 +610,16 @@ route('GET', '/outlets/summary', async (_r, ctx) => {
   ctx.require('dashboard.view')
   const today = localDate()
   const ps = periods(today)
-  const out = []
-  for (const l of await locationsIn(ctx.scope())) {
+  const out = await Promise.all((await locationsIn(ctx.scope())).map(async (l) => {
     const ids = [l.id]
-    const pending = await pendingCounts(ids)
-    const sales: Record<string, unknown> = {}
-    for (const [k, [a, b]] of Object.entries(ps)) {
-      const s = await salesSummary(a, b, ids)
-      sales[k] = { transactions: s.transactions, invoice_value: s.invoice_value, net_sales: s.net_sales, returns_value: s.returns_value }
-    }
-    out.push({
-      location: locOut(l), sales, stock: { ...(await stockValue(ctx, ids)), ...(await stockBuckets(ids)) },
-      alerts: { low: (await stockAnalysis(ids, 'low', 1000)).length, out: (await stockAnalysis(ids, 'out', 1000)).length },
-      open_registers: pending.open_register_sessions, pending_transfers: pending.transfers, pending_approvals: pending.approvals,
-    })
-  }
+    const [pending, sums, stock, buckets, low, outOf] = await Promise.all([
+      pendingCounts(ids), Promise.all(Object.entries(ps).map(async ([k, [a, b]]) => [k, await salesSummary(a, b, ids)] as const)),
+      stockValue(ctx, ids), stockBuckets(ids), stockAnalysis(ids, 'low', 1000), stockAnalysis(ids, 'out', 1000),
+    ])
+    const sales = Object.fromEntries(sums.map(([k, s]) => [k, { transactions: s.transactions, invoice_value: s.invoice_value, net_sales: s.net_sales, returns_value: s.returns_value }]))
+    return { location: locOut(l), sales, stock: { ...stock, ...buckets }, alerts: { low: low.length, out: outOf.length },
+      open_registers: pending.open_register_sessions, pending_transfers: pending.transfers, pending_approvals: pending.approvals }
+  }))
   return { as_of: today, periods: Object.fromEntries(Object.entries(ps).map(([k, [a, b]]) => [k, { from: a, to: b }])), locations: out }
 })
 route('GET', '/outlets/:id/overview', async ({ params }, ctx) => {

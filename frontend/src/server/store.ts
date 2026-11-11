@@ -155,6 +155,14 @@ export class Uow {
     const d = this.state.get(path)
     return d ? ({ ...structuredClone(d), id: path.split('/').pop()! } as Row) : null
   }
+  /** Read several documents in parallel (one round trip instead of one per document). */
+  async prefetch(paths: (string | null | undefined)[]): Promise<void> {
+    const todo = [...new Set(paths.filter((p): p is string => !!p && !this.state.has(p)))]
+    await Promise.all(todo.map(async (path) => {
+      const snap = await this.t.get(doc(this.fs, path))
+      if (!this.state.has(path)) this.state.set(path, snap.exists() ? snap.data() : null)
+    }))
+  }
   async need(path: string, what = 'Record'): Promise<Row> {
     const r = await this.get(path)
     if (!r) throw BadRequest(`${what} not found`, { code: 'not_found' })
@@ -253,9 +261,9 @@ function strip(o: DocumentData): DocumentData {
   return out
 }
 
-let afterCommit: (() => void) | null = null
+const commitListeners = new Set<() => void>()
 export function onCommit(fn: () => void) {
-  afterCommit = fn
+  commitListeners.add(fn)
 }
 
 /**
@@ -295,7 +303,7 @@ export async function tx<T>(fn: (u: Uow) => Promise<T>): Promise<T> {
   })
   if (written.length) {
     applyLocal(written)
-    afterCommit?.()
+    for (const fn of commitListeners) fn()
   }
   return result
 }

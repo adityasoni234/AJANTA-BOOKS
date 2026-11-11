@@ -77,21 +77,24 @@ export default function DashboardPage() {
 function SampleDataCard() {
   const { can, me } = useAuth()
   const allowed = !!me?.all_locations && can('settings.manage', 'catalog.create', 'locations.manage', 'inventory.adjust')
-  const books = useQuery({ queryKey: ['books', 'any'], queryFn: () => api.get<{ total: number }>('/books', { page_size: 1 }), enabled: allowed })
+  const status = useQuery({ queryKey: ['sample-data-status'], queryFn: () => api.get<{ available: boolean; partial: boolean }>('/sample-data/status'), enabled: allowed })
   const load = useMutation({
     mutationFn: () => api.post<{ locations: number; books: number; customers: number }>('/sample-data'),
     onSuccess: (r) => toast.success(`Sample data loaded: ${r.locations} locations, ${r.books} books with stock, ${r.customers} customers`),
     onError: (e) => toast.error(errorMessage(e)),
   })
-  if (!allowed || books.data?.total !== 0) return null
+  if (!allowed || !status.data?.available) return null
+  const partial = status.data.partial
   return (
     <Card className="mb-6">
       <CardBody className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="font-medium">Your catalog is empty</p>
-          <p className="text-sm text-muted">Load sample data to try the system: a warehouse and three outlets, 12 books with opening stock, and 4 customers. No logins are created; add staff under Administration → Users.</p>
+          <p className="font-medium">{partial ? 'Sample data is only partly loaded' : 'Your catalog is empty'}</p>
+          <p className="text-sm text-muted">{partial
+            ? 'Some stores did not get their opening stock (the page was probably closed while it was loading). Finish loading; nothing is added twice. Keep this page open until it says done.'
+            : 'Load sample data to try the system: a warehouse and three outlets, 12 books with opening stock, and 4 customers. No logins are created; add staff under Administration → Users. Keep this page open until it says done.'}</p>
         </div>
-        <Button onClick={() => load.mutate()} loading={load.isPending}>Load sample data</Button>
+        <Button onClick={() => load.mutate()} loading={load.isPending}>{partial ? 'Finish loading sample data' : 'Load sample data'}</Button>
       </CardBody>
     </Card>
   )

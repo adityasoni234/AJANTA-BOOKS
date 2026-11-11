@@ -152,6 +152,7 @@ export async function bump(u: Uow, coll: 'daily' | 'monthly', loc: string | null
 }
 /** Same additions into both the day and the month summary. */
 export async function bumpBoth(u: Uow, loc: string | null, date: string, add: Record<string, Num>) {
+  await u.prefetch([`daily/${loc ?? 'ORG'}~${date}`, `monthly/${loc ?? 'ORG'}~${date.slice(0, 7)}`])
   await bump(u, 'daily', loc, date, add)
   await bump(u, 'monthly', loc, date.slice(0, 7), add)
 }
@@ -199,6 +200,7 @@ export async function post(u: Uow, o: { source_type: string; source_id?: string 
     add[`acct.${l.account_id}.cr`] = D(add[`acct.${l.account_id}.cr`]).plus(l.credit)
     byLoc.set(l.location_id, add)
   }
+  await u.prefetch([...byLoc.keys()].flatMap((loc) => [`daily/${loc ?? 'ORG'}~${date}`, `monthly/${loc ?? 'ORG'}~${date.slice(0, 7)}`]))
   for (const [loc, add] of byLoc) await bumpBoth(u, loc, date, add)
   return id
 }

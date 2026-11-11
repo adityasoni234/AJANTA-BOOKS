@@ -41,7 +41,9 @@ const isbn = (i: number) => {
 route('POST', '/sample-data', async (_r, ctx) => {
   ctx.require('settings.manage', 'catalog.create', 'locations.manage', 'inventory.adjust')
   if (!ctx.all_locations) throw Conflict('Only the owner can load sample data')
-  if ((await entries('books')).size) throw Conflict('Sample data can only be loaded while the catalog is empty')
+  const existingBooks = [...(await entries('books')).values()]
+  const sampleTitles = new Set(BOOKS.map((b) => b[0]))
+  if (existingBooks.some((b) => !sampleTitles.has(b.title))) throw Conflict('Sample data can only be loaded while the catalog is empty (or holds only sample books)')
   const existing = await all('locations')
   const locIds: Record<string, string> = {}
   await tx(async (u) => {
@@ -58,22 +60,43 @@ route('POST', '/sample-data', async (_r, ctx) => {
   })
   const cats = new Map((await all('categories')).map((c) => [c.name, c.id]))
   const bookIds: { id: string; cost: number }[] = []
+  const existingCustomers = [...(await entries('customers')).values()]
   await tx(async (u) => {
     for (let i = 0; i < BOOKS.length; i++) {
       const [title, authors, publisher, cat, mrp, cost, tc] = BOOKS[i]
+      const have = existingBooks.find((b) => b.title === title)
+      if (have) { bookIds.push({ id: have.id, cost }); continue }
       const d = parseBookIn({ title, authors, publisher, category_id: cats.get(cat), isbn13: cat === 'Stationery' ? null : isbn(i), hsn_code: cat === 'Stationery' ? '4820' : '4901', tax_class_id: tc, mrp, selling_price: mrp, purchase_price: cost, reorder_level: 5, reorder_qty: 20 })
       const b = await createBook(u, ctx, d, { skipChecks: true })
       bookIds.push({ id: b.id, cost })
     }
     for (const [name, phone] of CUSTOMERS) {
+      if (existingCustomers.some((c) => c.phone === phone)) continue
       const id = newId()
       await u.setEntry(shardPath('customers', id), id, { name, phone, email: null, gstin: null, billing_address: null, state_code: '27', notes: null, marketing_consent: false, credit_limit: '0.00', is_active: true,
         code: await u.nextCode('CUSTOMER', 'C', 6), consent_updated_at: null, home_location_id: null, created_by: ctx.uid, created_at: u.at, spend: '0.00', visits: 0, outstanding: '0.00', store_credit: '0.00', loyalty_points: 0, last_purchase_at: null })
     }
   })
   const qty: Record<string, number> = { WH: 200, FORT: 25, PUNE: 15, BLR: 10 }
+  const { find } = await import('./store')
+  const done = new Set((await find('adjustments')).filter((a) => a.notes === 'Sample opening stock').map((a) => a.location_id))
   for (const code of Object.keys(qty)) {
+    if (done.has(locIds[code])) continue
     await tx((u) => createAdjustment(u, ctx, { location_id: locIds[code], reason_code: 'OPENING', notes: 'Sample opening stock', lines: bookIds.map((b, i) => ({ book_id: b.id, qty: Math.max(2, qty[code] - (i % 4) * 3), from_bucket: null, to_bucket: 'ON_HAND', unit_cost: String(b.cost) })) }))
   }
   return { message: 'Sample data loaded', locations: Object.keys(locIds).length, books: bookIds.length, customers: CUSTOMERS.length }
+})
+
+/** Whether the owner may load (or finish loading) sample data: empty catalog, or only sample books with some stores still missing their opening stock. */
+route('GET', '/sample-data/status', async (_r, ctx) => {
+  if (!ctx.all_locations || !ctx.has('settings.manage')) return { available: false, partial: false }
+  const books = [...(await entries('books')).values()]
+  if (!books.length) return { available: true, partial: false }
+  const titles = new Set(BOOKS.map((b) => b[0]))
+  if (books.some((b) => !titles.has(b.title))) return { available: false, partial: false }
+  const { find } = await import('./store')
+  const done = new Set((await find('adjustments')).filter((a) => a.notes === 'Sample opening stock').map((a) => a.location_id))
+  const locs = (await all('locations')).filter((l) => LOCATIONS.some((x) => x.code === l.code))
+  const partial = locs.length < LOCATIONS.length || locs.some((l) => !done.has(l.id))
+  return { available: partial, partial }
 })

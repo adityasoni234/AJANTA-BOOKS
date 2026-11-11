@@ -71,7 +71,7 @@ export default function TransferNewPage() {
       <Card>
         <CardHeader title="Items" description="Availability shown is at the source location." />
         <CardBody>
-          <BookSearch locationId={source && myLocs.has(source) ? source : null} onSelect={(b) => setLines((ls) => ls.some((x) => x.book.id === b.id) ? ls : [...ls, { book: b, qty: '1' }])} />
+          <BookSearch allowCreate locationId={source && myLocs.has(source) ? source : null} onSelect={(b) => setLines((ls) => ls.some((x) => x.book.id === b.id) ? ls : [...ls, { book: b, qty: '1' }])} />
         </CardBody>
         {lines.length === 0 ? <EmptyState title="No items added" description="Search or scan books to add them." /> : (
           <Table>

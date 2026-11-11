@@ -48,6 +48,11 @@ export class StockTx {
     this.actor = actor
   }
 
+  /** Load the stock documents for these (location, book) pairs in parallel before using them. */
+  async prefetch(pairs: [string, string][]): Promise<void> {
+    await this.u.prefetch(pairs.map(([l, b]) => stockPath(l, b)))
+  }
+
   async bal(loc: string, book: string): Promise<Bal> {
     const k = `${loc}|${book}`
     const cached = this.bals.get(k)

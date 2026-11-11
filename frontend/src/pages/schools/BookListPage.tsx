@@ -145,7 +145,7 @@ export default function BookListPage() {
               <Button loading={save.isPending} onClick={() => save.mutate()}><Save /> Save list</Button>
             </>} />
           <CardBody className="border-b border-border">
-            <BookSearch placeholder="Add a book: search title, author, ISBN or scan…" onSelect={(b) => {
+            <BookSearch allowCreate placeholder="Add a book: search title, author, ISBN or scan…" onSelect={(b) => {
               if (draft!.some((x) => x.book_id === b.id)) { toast.info(`'${b.title}' is already on the list`); return }
               setDraft([...draft!, { book_id: b.id, title: b.title, isbn13: b.isbn13, author: b.authors[0] ?? null, qty_per_set: 1 }])
             }} />

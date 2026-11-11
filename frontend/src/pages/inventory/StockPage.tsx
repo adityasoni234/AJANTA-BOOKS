@@ -1,10 +1,11 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { ClipboardCheck, Download } from 'lucide-react'
+import { ClipboardCheck, Download, Plus } from 'lucide-react'
 import * as React from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { DataTable, type Column } from '@/components/common/DataTable'
 import { SearchInput } from '@/components/common/Filters'
 import { PageHeader } from '@/components/common/PageHeader'
+import { AdjustmentDialog } from './AdjustmentsPage'
 import { StatCard } from '@/components/common/StatCard'
 import { Badge, StatusBadge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -24,6 +25,7 @@ interface Balance {
 interface Summary { location_id: string; location_name: string; location_type: string; on_hand: number; reserved: number; unsellable: number; in_transit: number; titles_in_stock: number; value: string | null; items_missing_cost: number | null }
 
 export default function StockPage() {
+  const [addOpen, setAddOpen] = React.useState(false)
   const { locationId, location, can } = useAuth()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
@@ -67,9 +69,11 @@ export default function StockPage() {
           <>
             {can('reports.export') && <Button variant="secondary" onClick={() => api.download('/reports/stock-analysis', { kind: status === 'OUT' ? 'out' : 'low', location_id: locationId ?? undefined, format: 'csv' }, 'stock_alerts.csv')}><Download /> Export alerts</Button>}
             {can('inventory.stocktake') && <Button variant="secondary" asChild><Link to="/inventory/adjustments?tab=stocktakes"><ClipboardCheck /> Stocktake</Link></Button>}
+            {can('inventory.adjust') && <Button onClick={() => setAddOpen(true)}><Plus /> Add stock</Button>}
           </>
         }
       />
+      <AdjustmentDialog open={addOpen} onOpenChange={setAddOpen} initialReason="OPENING" />
       <div className="mb-6 grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Units on hand" value={formatNumber(totals.on_hand)} hint={`${formatNumber(totals.titles)} titles in stock`} />
         <StatCard label="In transit (inbound)" value={formatNumber(totals.transit)} tone="info" />

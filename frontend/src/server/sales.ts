@@ -17,7 +17,7 @@ import { BillingError, STATE_CODES, allocate, bumpBoth, computeBill, post, prora
 import { route } from './router'
 import { getOrg, getPolicy } from './settings'
 import { StockTx, balancesAt, moveCopy, pickCopies } from './stock'
-import { all, byId, entries, entry, find, findScoped, getOne, shardPath, tx, type Row, type Uow } from './store'
+import { all, byId, entries, entry, find, findScoped, getOne, shardPath, stockPath, tx, type Row, type Uow } from './store'
 
 const payNumber = () => `PAY-${Date.now().toString(36).toUpperCase()}${newId().slice(0, 3).toUpperCase()}`
 
@@ -395,6 +395,9 @@ route('POST', '/pos/checkout', async ({ body, headers }, ctx) => {
   const reason = clean(body.discount_reason)
   // copies to pick (outside the transaction: query, then re-read inside)
   const sale = await tx(async (u) => {
+    await u.prefetch([`idempotency/sale~${key}`, `register_sessions/${String(body.register_session_id ?? '')}`, customer ? shardPath('customers', customer.id) : null,
+      body.discount_approval_id ? `approvals/${body.discount_approval_id}` : null, body.exchange_return_id ? `returns/${body.exchange_return_id}` : null,
+      `counters/${q.location_id}~SALES_INVOICE~${financialYear(localDate())}`, ...lines.map((l) => stockPath(q.location_id, l.book.id))])
     if (await u.get(`idempotency/sale~${key}`)) throw Conflict('This sale was already submitted', { code: 'duplicate' })
     const session = await u.get(`register_sessions/${String(body.register_session_id ?? '')}`)
     if (!session || session.location_id !== q.location_id || session.status !== 'OPEN') throw Conflict('Open a register session at this outlet before selling', { code: 'register_closed' })
@@ -587,12 +590,13 @@ route('GET', '/sales', async ({ query }, ctx) => {
   ctx.require('sales.view')
   let rows = await salesIn(ctx, { location_id: query.location_id, from: query.date_from, to: query.date_to })
   const custs = await entries('customers').catch(() => new Map<string, Row>())
+  const locNames = new Map((await all('locations')).map((l) => [l.id, l.name]))
   rows = rows.filter((s) => (!query.customer_id || s.customer_id === query.customer_id) && (!query.status || s.status === query.status)
     && (!query.register_session_id || s.register_session_id === query.register_session_id) && (!query.payment_method_id || (s.payment_method_ids ?? []).includes(query.payment_method_id))
     && (query.has_balance !== 'true' || (s.status === 'COMPLETED' && D(s.grand_total).gt(D(s.amount_paid))))
     && (!query.q || matches(query.q, s.invoice_number, s.customer_name, custs.get(s.customer_id)?.phone)))
   return paginate(rows.map((s) => ({
-    id: s.id, invoice_number: s.invoice_number, doc_type: s.invoice?.doc_type ?? null, location_id: s.location_id, location_name: '', customer_id: s.customer_id, customer_name: s.customer_name, status: s.status,
+    id: s.id, invoice_number: s.invoice_number, doc_type: s.invoice?.doc_type ?? null, location_id: s.location_id, location_name: locNames.get(s.location_id) ?? '', customer_id: s.customer_id, customer_name: s.customer_name, status: s.status,
     grand_total: s.grand_total, discount_total: s.discount_total, tax_total: s.tax_total, amount_paid: s.amount_paid, balance_due: s2(D(s.grand_total).minus(D(s.amount_paid))), items: s.items, cashier: s.cashier, created_at: s.created_at,
   })), Number(query.page), Number(query.page_size))
 })
@@ -626,6 +630,7 @@ async function voidSale(u: Uow, ctx: Ctx, saleId: string, reason: string) {
   if (!D(sale.amount_paid).eq(D(sale.grand_total))) throw Conflict('Sales with partial payments or receivables cannot be voided')
   const ref = { type: 'SALE_VOID', id: sale.id, number: sale.invoice_number }
   const st = new StockTx(u, { uid: ctx.uid, name: ctx.name })
+  await st.prefetch((sale.lines as Row[]).map((l) => [sale.location_id, l.book_id]))
   for (const l of sale.lines as Row[]) {
     const b = await st.bal(sale.location_id, l.book_id)
     st.receiveCost(b, l.qty, l.unit_cost)
@@ -891,6 +896,7 @@ async function completeReturn(u: Uow, ctx: Ctx, ret: Row) {
   const method = (await byId('payment_methods', ret.refund_method_id))!
   const ref = { type: 'RETURN', id: ret.id, number: ret.number }
   const st = new StockTx(u, { uid: ctx.uid, name: ctx.name })
+  await st.prefetch((ret.lines as Row[]).map((l) => [ret.location_id, l.book_id]))
   let costBack = ZERO
   for (const l of ret.lines as Row[]) {
     const b = await st.bal(ret.location_id, l.book_id)
@@ -937,8 +943,13 @@ async function completeReturn(u: Uow, ctx: Ctx, ret: Row) {
   }
   if (sale.customer_id) await customerAdd(u, sale.customer_id, { spend: D(ret.refund_total).neg() })
   const today = localDate()
+  const books = await entries('books')
   await bumpBoth(u, ret.location_id, today, { 'r.count': 1, 'r.taxable': ret.taxable_total, 'r.tax': D(ret.cgst_total).plus(D(ret.sgst_total)).plus(D(ret.igst_total)), 'r.total': ret.refund_total, 'r.cogs': costBack,
-    ...Object.fromEntries((ret.lines as Row[]).flatMap((l) => [[`book.${l.book_id}.ret_qty`, l.qty], [`book.${l.book_id}.ret_net`, l.taxable_value]])) })
+    [`pay.${method.code}.refund`]: ret.refund_total,
+    ...Object.fromEntries((ret.lines as Row[]).flatMap((l) => {
+      const cat = books.get(l.book_id)?.category_id ?? 'NONE'
+      return [[`book.${l.book_id}.ret_qty`, l.qty], [`book.${l.book_id}.ret_net`, l.taxable_value], [`cat.${cat}.ret_qty`, l.qty], [`cat.${cat}.ret_net`, l.taxable_value]]
+    })) })
   const patch = { status: 'COMPLETED', approved_by: ctx.uid, completed_at: u.at, cogs_reversed: s2(costBack), journal_entry_id: je, credit_note: creditNote }
   await u.update(`returns/${ret.id}`, patch)
   return { ...ret, ...patch }

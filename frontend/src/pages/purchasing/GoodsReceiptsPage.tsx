@@ -136,7 +136,7 @@ function AdHocDialog({ mode, onClose }: { mode: 'receive' | 'return'; onClose: (
             <Field label="Location" required><LocationSelect value={loc} onChange={setLoc} allowAll={false} className="w-full" /></Field>
           </div>
           {mode === 'return' && <Field label="Reason" required><Input value={reason} onChange={(e) => setReason(e.target.value)} /></Field>}
-          <BookSearch locationId={loc} onSelect={(b) => setLines((ls) => ls.some((x) => x.book.id === b.id) ? ls : [...ls, { book: b, qty: '1', cost: b.purchase_price ?? '', bucket: 'DAMAGED' }])} />
+          <BookSearch allowCreate locationId={loc} onSelect={(b) => setLines((ls) => ls.some((x) => x.book.id === b.id) ? ls : [...ls, { book: b, qty: '1', cost: b.purchase_price ?? '', bucket: 'DAMAGED' }])} />
           {lines.map((l, i) => (
             <div key={l.book.id} className="flex items-end gap-3">
               <p className="flex-1 truncate text-sm">{l.book.title}</p>

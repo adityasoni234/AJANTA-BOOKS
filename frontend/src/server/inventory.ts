@@ -170,6 +170,7 @@ export async function createAdjustment(u: Uow, ctx: Ctx, o: { location_id: strin
 async function postAdjustment(u: Uow, ctx: Ctx, adj: Row): Promise<Row> {
   const ref = { type: 'ADJUSTMENT', id: adj.id, number: adj.number }
   const st = new StockTx(u, { uid: ctx.uid, name: ctx.name })
+  await st.prefetch((adj.lines as AdjLine[]).map((l) => [adj.location_id, l.book_id]))
   const books = await entries('books')
   let invDelta = ZERO, opening = ZERO
   for (const ln of adj.lines as AdjLine[]) {
