@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { DataTable } from '@/components/common/DataTable'
 import { LocationSelect } from '@/components/common/Filters'
+import { DeleteButton } from '@/components/common/DeleteButton'
 import { PageHeader } from '@/components/common/PageHeader'
 import { ErrorState, PageLoader } from '@/components/common/States'
 import { Badge } from '@/components/ui/badge'
@@ -55,6 +56,7 @@ export default function SchoolDetailPage() {
         crumbs={[{ label: 'Schools', to: '/schools' }, { label: school.code }]}
         actions={manage && <>
           <Button variant="secondary" onClick={() => setEdit(true)}><Pencil /> Edit</Button>
+          <DeleteButton path={`/schools/${school.id}`} what="school" onDeleted={() => navigate('/schools')} />
           <Button variant="secondary" onClick={() => setAddClass(true)}><Plus /> Add class</Button>
           {can('purchasing.create') && (school.is_active && lists.some((l) => l.is_active && l.books > 0)
             ? <Button asChild><Link to={`/schools/${school.id}/order`}><ShoppingBag /> Order books</Link></Button>

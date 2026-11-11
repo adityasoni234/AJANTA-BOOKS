@@ -2,15 +2,24 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { ApiError } from '@/lib/api'
 import { AuthProvider } from '@/lib/auth'
 import LoginPage from '@/pages/auth/LoginPage'
+import { dispatch } from '@/server'
 
-function json(status: number, body: unknown) {
-  return Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }))
+// The API is answered in the browser by src/server (Firebase); tests replace it with canned responses.
+vi.mock('@/server', () => ({ dispatch: vi.fn() }))
+
+function json(status: number, body: unknown): Promise<unknown> {
+  if (status >= 400) {
+    const err = (body as { error: { code: string; message: string } }).error
+    return Promise.reject(new ApiError(status, err))
+  }
+  return Promise.resolve(body)
 }
 
-function renderLogin(fetchImpl: (url: string, init?: RequestInit) => Promise<Response>) {
-  vi.stubGlobal('fetch', vi.fn(fetchImpl))
+function renderLogin(impl: (url: string) => Promise<unknown>) {
+  vi.mocked(dispatch).mockImplementation((_method: string, path: string) => impl(path))
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
@@ -26,18 +35,17 @@ function renderLogin(fetchImpl: (url: string, init?: RequestInit) => Promise<Res
   )
 }
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => vi.mocked(dispatch).mockReset())
 
 const me = { id: 'u1', email: 'owner@x.test', full_name: 'Owner', role_code: 'OWNER', role_name: 'Owner', permissions: ['dashboard.view'], all_locations: true, locations: [], must_change_password: false, organization_name: 'Shop', csrf_token: 'tok' }
 
 describe('LoginPage', () => {
   it('validates fields before calling the API', async () => {
-    const fetchMock = vi.fn((url: string) => url.includes('/auth/me') ? json(401, { error: { code: 'not_authenticated', message: 'x' } }) : json(200, { needs_setup: false }))
-    renderLogin(fetchMock)
+    renderLogin((url) => url.includes('/auth/me') ? json(401, { error: { code: 'not_authenticated', message: 'x' } }) : json(200, { needs_setup: false }))
     await userEvent.click(await screen.findByRole('button', { name: 'Sign in' }))
     expect(await screen.findByText('Enter a valid email')).toBeInTheDocument()
     expect(screen.getByText('Enter your password')).toBeInTheDocument()
-    expect(fetchMock.mock.calls.some(([u]) => String(u).includes('/auth/login'))).toBe(false)
+    expect(vi.mocked(dispatch).mock.calls.some(([, u]) => String(u).includes('/auth/login'))).toBe(false)
   })
 
   it('shows the server error for bad credentials', async () => {

@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Archive, ArchiveRestore, Pencil, Save, Trash2, X } from 'lucide-react'
 import * as React from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { BookSearch } from '@/components/common/BookSearch'
 import { LocationSelect } from '@/components/common/Filters'
+import { DeleteButton } from '@/components/common/DeleteButton'
 import { PageHeader } from '@/components/common/PageHeader'
 import { EmptyState, ErrorState, PageLoader } from '@/components/common/States'
 import { Badge } from '@/components/ui/badge'
@@ -23,6 +24,7 @@ interface Draft { book_id: string; title: string; isbn13: string | null; author:
 
 export default function BookListPage() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const { can } = useAuth()
   const qc = useQueryClient()
@@ -73,6 +75,7 @@ export default function BookListPage() {
             {d.is_active ? <><Archive /> Archive</> : <><ArchiveRestore /> Restore</>}
           </Button>
           <Button onClick={() => startEdit(d)}><Pencil /> Edit books</Button>
+          <DeleteButton path={`/book-lists/${d.id}`} what="class list" onDeleted={() => navigate(`/schools/${d.school.id}`)} />
         </>}
       />
 

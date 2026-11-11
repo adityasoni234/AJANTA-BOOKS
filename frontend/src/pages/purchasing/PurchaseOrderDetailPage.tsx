@@ -1,8 +1,9 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Check, Mail, PackageCheck, Pencil, Send, X } from 'lucide-react'
 import * as React from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
+import { DeleteButton } from '@/components/common/DeleteButton'
 import { PageHeader } from '@/components/common/PageHeader'
 import { ErrorState, PageLoader } from '@/components/common/States'
 import { Badge, StatusBadge } from '@/components/ui/badge'
@@ -20,6 +21,7 @@ import type { PO } from './types'
 
 export default function PurchaseOrderDetailPage() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const { can, me } = useAuth()
   const q = useQuery({ queryKey: ['po', id], queryFn: () => api.get<PO>(`/purchase-orders/${id}`) })
   const [receive, setReceive] = React.useState(false)
@@ -44,6 +46,7 @@ export default function PurchaseOrderDetailPage() {
         crumbs={[{ label: 'Purchase orders', to: '/purchasing/orders' }, { label: po.number }]}
         actions={<>
           {po.status === 'DRAFT' && can('purchasing.create') && <Button variant="secondary" asChild><Link to={`/purchasing/orders/${po.id}/edit`}><Pencil /> Edit</Link></Button>}
+          {po.status === 'DRAFT' && can('purchasing.create') && <DeleteButton path={`/purchase-orders/${po.id}`} what="draft purchase order" onDeleted={() => navigate('/purchasing/orders')} />}
           {po.status === 'DRAFT' && can('purchasing.create') && <Button loading={act.isPending} onClick={() => act.mutate({ path: 'submit' })}><Send /> Submit</Button>}
           {canApprove && <><Button variant="secondary" onClick={() => setConfirm('reject')}><X /> Reject</Button><Button onClick={() => setConfirm('approve')}><Check /> Approve</Button></>}
           {po.author_id && ['APPROVED', 'ISSUED', 'PARTIALLY_RECEIVED'].includes(po.status) && can('purchasing.create') && <Button variant={po.status === 'APPROVED' ? 'primary' : 'secondary'} onClick={() => setEmail(true)}><Mail /> Email author</Button>}

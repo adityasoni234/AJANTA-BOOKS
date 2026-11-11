@@ -32,3 +32,6 @@ local-credentials.txt
 
 # Generated from firestore.rules.template
 firestore.rules
+
+# Firebase emulator logs
+*-debug.log

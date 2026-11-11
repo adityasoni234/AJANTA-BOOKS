@@ -9,5 +9,5 @@ export interface Transfer {
   dispatched_at: string | null; completed_at: string | null; rejection_reason: string | null; total_units: number; lines: TransferLine[]
   receipts: { id: string; kind: string; received_by: string | null; received_at: string; notes: string | null; details: { lines?: unknown[] } }[]
   approval_request_id: string | null
-  can: { edit: boolean; submit: boolean; approve: boolean; dispatch: boolean; receive: boolean; resolve: boolean; cancel: boolean }
+  can: { edit: boolean; submit: boolean; approve: boolean; dispatch: boolean; receive: boolean; resolve: boolean; cancel: boolean; delete?: boolean }
 }

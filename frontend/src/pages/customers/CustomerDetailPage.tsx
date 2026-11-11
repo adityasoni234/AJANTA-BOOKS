@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Gift, Pencil, Wallet } from 'lucide-react'
 import * as React from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { DataTable } from '@/components/common/DataTable'
+import { DeleteButton } from '@/components/common/DeleteButton'
 import { PageHeader } from '@/components/common/PageHeader'
 import { StatCard } from '@/components/common/StatCard'
 import { ErrorState, PageLoader } from '@/components/common/States'
@@ -28,6 +29,7 @@ interface History {
 
 export default function CustomerDetailPage() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const { can } = useAuth()
   const c = useQuery({ queryKey: ['customer', id], queryFn: () => api.get<Customer>(`/customers/${id}`) })
   const h = useQuery({ queryKey: ['customer-history', id], queryFn: () => api.get<History>(`/customers/${id}/history`) })
@@ -44,6 +46,7 @@ export default function CustomerDetailPage() {
           {Number(cu.loyalty_points) > 0 && can('pos.sell') && <Button variant="secondary" onClick={() => setDlg('redeem')}><Gift /> Redeem points</Button>}
           {can('customers.manage') && <Button variant="secondary" onClick={() => setDlg('adjust')}>Adjust balance</Button>}
           {can('customers.manage') && <Button onClick={() => setEdit(true)}><Pencil /> Edit</Button>}
+          {can('customers.manage') && <DeleteButton path={`/customers/${id}`} what="customer" onDeleted={() => navigate('/customers')} />}
         </>} />
       <div className="mb-6 grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 lg:grid-cols-5">
         <StatCard label="Lifetime spend (net)" value={formatINR(cu.lifetime_spend)} hint={`${cu.visits} visits`} />

@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import { Pencil, Plus } from 'lucide-react'
 import * as React from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { DataTable } from '@/components/common/DataTable'
+import { DeleteButton } from '@/components/common/DeleteButton'
 import { PageHeader } from '@/components/common/PageHeader'
 import { StatCard } from '@/components/common/StatCard'
 import { ErrorState, PageLoader } from '@/components/common/States'
@@ -18,6 +19,7 @@ interface Entry { date: string; type: string; ref: string; id: string; credit: s
 
 export default function SupplierDetailPage() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const { can, canAny } = useAuth()
   const [edit, setEdit] = React.useState(false)
   const s = useQuery({ queryKey: ['supplier', id], queryFn: () => api.get<Supplier>(`/suppliers/${id}`) })
@@ -32,6 +34,7 @@ export default function SupplierDetailPage() {
         actions={<>
           {can('purchasing.create') && <Button variant="secondary" asChild><Link to={`/purchasing/orders/new?supplier=${sup.id}`}><Plus /> Purchase order</Link></Button>}
           {can('suppliers.manage') && <Button onClick={() => setEdit(true)}><Pencil /> Edit</Button>}
+          {can('suppliers.manage') && <DeleteButton path={`/suppliers/${id}`} what="supplier" onDeleted={() => navigate('/suppliers')} />}
         </>} />
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <StatCard label="Outstanding payable" value={formatINR(sup.outstanding)} />

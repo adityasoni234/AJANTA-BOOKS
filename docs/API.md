@@ -1,14 +1,17 @@
-# API conventions
+# API paths
 
-* Base path: `/api/v1`. Interactive docs: `/api/docs` (Swagger) and `/api/redoc`; schema at
-  `/api/openapi.json`. Health: `/health/live`, `/health/ready`.
-* **Authentication:** `POST /api/v1/auth/login` sets the `ab_session` (HttpOnly) and `ab_csrf` cookies and
-  returns the user, permissions, permitted locations and `csrf_token`. `GET /auth/me` returns the same.
-* **CSRF:** every POST/PUT/PATCH/DELETE must send `X-CSRF-Token: <csrf_token>`.
-* **Idempotency:** money- and stock-moving creates require `Idempotency-Key: <uuid>` (8–80 chars):
+* The screens call paths such as `/books`, `/pos/checkout` or `/reports/sales-summary` through
+  `frontend/src/lib/api.ts`. There is no HTTP server: `frontend/src/server/router.ts` maps each path to a handler
+  that reads and writes Firestore. The paths, request bodies and responses are unchanged from the earlier REST API.
+* **Authentication:** Firebase Auth. `POST /auth/login` signs in and returns the user, permissions and permitted
+  locations; `GET /auth/me` returns the same.
+* **Idempotency:** money- and stock-moving creates take an `Idempotency-Key` (8–80 chars):
   `POST /pos/checkout`, `/goods-receipts`, `/returns`, `/supplier-payments`, `/supplier-returns`,
   `/customers/{id}/receipts`, `/transfers/{id}/receive`, `/transfers/{id}/resolve`, `/school-orders`; optional for `/expenses`.
-  Repeating a request with the same key returns the original result (`"replayed": true` where applicable).
+  Repeating a request with the same key returns the original result.
+* **Delete:** `DELETE` exists for records that were never used (books, customers, suppliers, registers, accounts,
+  expense categories, schools, class lists, draft purchase orders and transfers, roles). Records already used in
+  bills, stock or orders are refused with a message to deactivate, archive, cancel or reverse them instead.
 * **Money** is always a decimal string (`"1234.50"`); quantities are integers.
 * **Pagination:** `?page=1&page_size=25` (max 200) → `{ "items": [...], "total", "page", "page_size" }`.
 * **Exports:** report endpoints accept `?format=csv` (requires `reports.export`) with the same filters and

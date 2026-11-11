@@ -1,8 +1,9 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { ArrowRight, Check, Truck, X } from 'lucide-react'
 import * as React from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
+import { DeleteButton } from '@/components/common/DeleteButton'
 import { PageHeader } from '@/components/common/PageHeader'
 import { ErrorState, PageLoader } from '@/components/common/States'
 import { Badge, StatusBadge } from '@/components/ui/badge'
@@ -19,6 +20,7 @@ import type { Transfer } from './types'
 
 export default function TransferDetailPage() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const q = useQuery({ queryKey: ['transfer', id], queryFn: () => api.get<Transfer>(`/transfers/${id}`) })
   const [mode, setMode] = React.useState<null | 'dispatch' | 'receive' | 'resolve' | 'reject' | 'cancel' | 'approve'>(null)
   const act = useMutation({
@@ -39,6 +41,7 @@ export default function TransferDetailPage() {
         description={<span className="flex items-center gap-1.5">{t.source_location_name}<ArrowRight className="size-3.5" />{t.dest_location_name}</span>}
         crumbs={[{ label: 'Transfers', to: '/transfers' }, { label: t.number }]}
         actions={<>
+          {t.can.delete && <DeleteButton path={`/transfers/${t.id}`} what="draft transfer" onDeleted={() => navigate('/transfers')} />}
           {t.can.cancel && <Button variant="danger-outline" onClick={() => setMode('cancel')}>Cancel</Button>}
           {t.can.submit && <Button loading={act.isPending} onClick={() => act.mutate({ path: 'submit' })}>Submit request</Button>}
           {t.can.approve && t.approval_request_id && <><Button variant="secondary" onClick={() => setMode('reject')}><X /> Reject</Button><Button onClick={() => setMode('approve')}><Check /> Approve</Button></>}

@@ -669,6 +669,21 @@ route('PUT', '/authors/:id', async ({ params, body }, ctx) => {
   })
 })
 
+route('DELETE', '/books/:id', async ({ params }, ctx) => {
+  ctx.require('catalog.archive')
+  const b = await getBook(params.id)
+  const used = (await hasStock(b.id)) || (await find('stock_moves', where('book_ids', 'array-contains', b.id), limit(1))).length
+    || (await find('purchase_orders', where('book_ids', 'array-contains', b.id), limit(1))).length
+    || (await all('book_lists').catch(() => [] as Row[])).some((l) => (l.items as Row[]).some((i) => i.book_id === b.id))
+  if (used) throw Conflict('This book has stock, sales, orders or is on a school list; archive it instead')
+  await tx(async (u) => {
+    await u.setEntry(shardPath('books', b.id), b.id, null)
+    if (b.has_cover) u.delete(`book_images/${b.id}`)
+    ctx.audit(u, 'catalog.book_deleted', { entity_type: 'book', entity_id: b.id, details: { title: b.title, sku: b.sku } })
+  })
+  return undefined
+})
+
 // detail last, so the static /books/... paths above win
 route('GET', '/books/:id', async ({ params }, ctx) => {
   ctx.require('catalog.view')
