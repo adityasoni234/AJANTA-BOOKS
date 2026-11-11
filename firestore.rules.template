@@ -123,7 +123,11 @@ service cloud.firestore {
       allow read: if readScoped(['purchasing.view', 'schools.view', 'finance.view']);
       allow write: if writeScoped(['purchasing.create', 'purchasing.approve', 'purchasing.receive', 'schools.manage']);
     }
-    match /goods_receipts/{id} { allow read: if readScoped(['purchasing.view', 'finance.view']); allow create: if writeScoped(['purchasing.receive']); }
+    match /goods_receipts/{id} {
+      allow read: if readScoped(['purchasing.view', 'finance.view']);
+      allow create: if writeScoped(['purchasing.receive']);
+      allow update: if can('finance.manage') && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['supplier_invoice_id']);
+    }
     match /supplier_invoices/{id} { allow read: if canAny(['finance.view', 'purchasing.view']); allow write: if can('finance.manage'); }
     match /supplier_payments/{id} { allow read: if canAny(['finance.view', 'purchasing.view']); allow create: if can('finance.manage'); }
     match /supplier_returns/{id} { allow read: if readScoped(['purchasing.view', 'finance.view']); allow create: if writeScoped(['purchasing.return']); }
@@ -167,6 +171,7 @@ service cloud.firestore {
       allow update: if active() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reversed_by_id']) && resource.data.reversed_by_id == null;
     }
     match /expenses/{id} { allow read: if readScoped(['expenses.view', 'finance.view']); allow write: if writeScoped(['expenses.create', 'expenses.approve']); }
+    match /expense_receipts/{id} { allow read: if readScoped(['expenses.view']); allow write: if writeScoped(['expenses.create']); }
     match /bank_reconciliations/{id} { allow read: if can('finance.view'); allow create: if can('finance.manage'); }
     match /fund_transfers/{id} { allow read: if can('finance.view'); allow create: if can('finance.manage'); }
     match /daily/{id} { allow read: if readScoped(['dashboard.view', 'reports.view', 'accounting.view', 'finance.view']); allow write: if active() && docLocOk(request.resource.data); }

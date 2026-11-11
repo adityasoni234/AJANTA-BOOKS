@@ -136,18 +136,24 @@ async function checkBarcodeUnique(code: string, exclude: string | null) {
 export async function publisherId(u: Uow, name: string | null): Promise<string | null> {
   if (!name) return null
   const n = name.split(/\s+/).join(' ')
+  const key = `publisher:${lc(n)}`
+  const memo = u.memo.get(key)
+  if (memo) return memo
   const p = (await all('publishers')).find((x) => lc(x.name) === lc(n))
-  if (p) return p.id
-  return u.add('publishers', { name: n })
+  const id = p ? p.id : u.add('publishers', { name: n })
+  u.memo.set(key, id)
+  return id
 }
 export async function authorIds(u: Uow, list: string[]): Promise<string[]> {
   const existing = await all('authors')
-  const created = new Map<string, string>()
   return list.map((n) => {
+    const key = `author:${lc(n)}`
+    const memo = u.memo.get(key)
+    if (memo) return memo
     const a = existing.find((x) => lc(x.name) === lc(n))
-    if (a) return a.id
-    if (!created.has(lc(n))) created.set(lc(n), u.add('authors', { name: n, email: null, phone: null, supplier_id: null }))
-    return created.get(lc(n))!
+    const id = a ? a.id : u.add('authors', { name: n, email: null, phone: null, supplier_id: null })
+    u.memo.set(key, id)
+    return id
   })
 }
 function recordPrice(u: Uow, ctx: Ctx, bookId: string, field: string, oldV: string | null, newV: string | null, reason: string | null, locationId: string | null = null) {

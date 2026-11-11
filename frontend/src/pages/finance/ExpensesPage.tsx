@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Field, Input, NativeSelect } from '@/components/ui/input'
-import { api, errorMessage, type Page } from '@/lib/api'
+import { api, errorMessage, request, type Page } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { useDateRange, useIdempotencyKey } from '@/lib/hooks'
 import { useCashAccounts } from '@/lib/queries'
@@ -65,7 +65,7 @@ export default function ExpensesPage() {
             { key: 'p', header: 'Paid from', hideBelow: 'lg', cell: (e) => e.paid_from },
             { key: 'a', header: 'Amount', align: 'right', cell: (e) => formatINR(e.amount) },
             { key: 's', header: 'Status', cell: (e) => <><StatusBadge status={e.status} />{e.rejection_reason && <p className="text-xs text-danger">{e.rejection_reason}</p>}</> },
-            { key: 'r', header: 'Receipt', cell: (e) => e.has_receipt ? <a className="text-primary hover:underline" href={`/api/v1/expenses/${e.id}/receipt`} target="_blank" rel="noreferrer">View</a> : can('expenses.create') ? (
+            { key: 'r', header: 'Receipt', cell: (e) => e.has_receipt ? <button type="button" className="text-primary hover:underline" onClick={() => void openReceipt(e.id)}>View</button> : can('expenses.create') ? (
               <label className="inline-flex cursor-pointer items-center gap-1 text-xs text-muted hover:text-foreground"><Paperclip className="size-3.5" /> Attach
                 <input type="file" accept="application/pdf,image/jpeg,image/png" className="sr-only" onChange={(ev) => ev.target.files?.[0] && upload.mutate({ id: e.id, file: ev.target.files[0] })} /></label>
             ) : '—' },
@@ -119,4 +119,13 @@ function ExpenseDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o
       </DialogContent>
     </Dialog>
   )
+}
+
+async function openReceipt(id: string) {
+  try {
+    const res = await request<Response>('GET', `/expenses/${id}/receipt`, { raw: true })
+    window.open(URL.createObjectURL(await res.blob()), '_blank', 'noopener')
+  } catch (e) {
+    toast.error(errorMessage(e))
+  }
 }

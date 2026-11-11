@@ -138,6 +138,8 @@ export class Uow {
   private state = new Map<string, DocumentData | null>()
   private pending = new Map<string, Pending>()
   readonly at = nowIso()
+  /** Per-unit lookups (e.g. author/publisher ids created earlier in the same unit). */
+  readonly memo = new Map<string, string>()
   private t: Transaction
   private fs: Firestore
   constructor(t: Transaction, fs: Firestore) {

@@ -243,7 +243,7 @@ export async function stockAnalysis(scope: Scope, kind: string, lim = 200) {
 }
 
 // ---------------------------------------------------------------- finance
-async function accountTotals(d1: string | null, d2: string, scope: Scope, types: string[]) {
+export async function accountTotals(d1: string | null, d2: string, scope: Scope, types: string[]) {
   const accounts = await all('accounts')
   let docs: Row[]
   if (d1) docs = await periodDocs(scope, d1, d2)
