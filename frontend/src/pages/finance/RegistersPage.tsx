@@ -3,6 +3,7 @@ import { Plus } from 'lucide-react'
 import * as React from 'react'
 import { toast } from 'sonner'
 import { DataTable } from '@/components/common/DataTable'
+import { DeleteButton } from '@/components/common/DeleteButton'
 import { PageHeader } from '@/components/common/PageHeader'
 import { Badge, StatusBadge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -47,7 +48,10 @@ export default function RegistersPage() {
           <Card key={r.id} className="p-4">
             <div className="flex items-start justify-between">
               <div><p className="font-medium">{r.name}</p><p className="text-xs text-muted">{r.location_name}</p></div>
-              {r.open_session ? <Badge tone="success">Open</Badge> : <Badge>Closed</Badge>}
+              <div className="flex items-center gap-1">
+                {r.open_session ? <Badge tone="success">Open</Badge> : <Badge>Closed</Badge>}
+                {can('registers.manage') && !r.open_session && <DeleteButton iconOnly path={`/registers/${r.id}`} what="register" />}
+              </div>
             </div>
             {r.open_session ? (
               <div className="mt-3 flex items-end justify-between text-sm">

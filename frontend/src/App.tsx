@@ -9,6 +9,7 @@ const lazy = (f: () => Promise<{ default: React.ComponentType<{ kind?: string }>
 
 const ResetPasswordPage = lazy(() => import('./pages/auth/ResetPasswordPage'))
 const SetupPage = lazy(() => import('./pages/auth/SetupPage'))
+const SignupPage = lazy(() => import('./pages/auth/SignupPage'))
 const AccountPage = lazy(() => import('./pages/auth/AccountPage'))
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
 const OutletsPage = lazy(() => import('./pages/outlets/OutletsPage'))
@@ -85,6 +86,7 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/setup" element={<SetupPage />} />
+        <Route path="/signup" element={<SignupPage />} />
         <Route path="/sales/:id/print" element={<RequireAuth><InvoicePrintPage /></RequireAuth>} />
         <Route path="/returns/:id/print" element={<RequireAuth><InvoicePrintPage kind="credit-note" /></RequireAuth>} />
         <Route element={<RequireAuth><AppShell /></RequireAuth>}>

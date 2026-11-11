@@ -1,9 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
-import { Loader2, ScanLine } from 'lucide-react'
+import { Loader2, Plus, ScanLine } from 'lucide-react'
 import * as React from 'react'
 import { Input } from '@/components/ui/input'
 import { api, type Page } from '@/lib/api'
+import { useAuth } from '@/lib/auth'
 import { useDebounced } from '@/lib/hooks'
+import { QuickAddItem } from './QuickAddItem'
 import type { Book } from '@/lib/types'
 import { cn, formatINR } from '@/lib/utils'
 
@@ -11,7 +13,7 @@ import { cn, formatINR } from '@/lib/utils'
  * Search-as-you-type book picker that also accepts scanner input: pressing Enter with an exact
  * ISBN/barcode/SKU/copy code resolves it via the lookup endpoint.
  */
-export function BookSearch({ onSelect, locationId, placeholder = 'Search title, author, ISBN or scan barcode…', autoFocus, inStockOnly, className, inputRef }: {
+export function BookSearch({ onSelect, locationId, placeholder = 'Search title, author, ISBN or scan barcode…', autoFocus, inStockOnly, className, inputRef, allowCreate }: {
   onSelect: (book: Book, copy?: { id: string; code: string }) => void
   locationId?: string | null
   placeholder?: string
@@ -19,7 +21,12 @@ export function BookSearch({ onSelect, locationId, placeholder = 'Search title, 
   inStockOnly?: boolean
   className?: string
   inputRef?: React.Ref<HTMLInputElement>
+  /** Offer "Add new item" (book or school supply) when the item is not in the catalog yet. */
+  allowCreate?: boolean
 }) {
+  const { can } = useAuth()
+  const canCreate = !!allowCreate && can('catalog.create')
+  const [adding, setAdding] = React.useState<string | null>(null)
   const [q, setQ] = React.useState('')
   const [open, setOpen] = React.useState(false)
   const [active, setActive] = React.useState(0)
@@ -104,9 +111,21 @@ export function BookSearch({ onSelect, locationId, placeholder = 'Search title, 
       />
       {(results.isFetching || resolving) && <Loader2 className="absolute right-2.5 top-1/2 size-4 -translate-y-1/2 animate-spin text-subtle" />}
       {error && <p className="mt-1 text-xs text-danger" role="alert">{error}</p>}
+      {canCreate && (
+        <button type="button" className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline" onClick={() => setAdding(q.trim())}>
+          <Plus className="size-3" /> Not in the catalog? Add a new book or school supply
+        </button>
+      )}
+      {canCreate && <QuickAddItem open={adding !== null} initialTitle={adding ?? ''} onOpenChange={(o) => { if (!o) setAdding(null) }} onCreated={(b) => choose(b)} />}
       {open && dq.length >= 2 && (
         <ul id={listId} role="listbox" className="absolute z-40 mt-1 max-h-80 w-full overflow-auto rounded-md border border-border bg-white py-1 shadow-[var(--shadow-pop)]">
           {items.length === 0 && !results.isFetching && <li className="px-3 py-2 text-sm text-muted">No matches</li>}
+          {canCreate && !results.isFetching && (
+            <li role="option" aria-selected={false} className="flex cursor-pointer items-center gap-2 border-b border-border px-3 py-2 text-sm font-medium text-primary hover:bg-surface-2"
+              onMouseDown={(e) => { e.preventDefault(); setOpen(false); setAdding(q.trim()) }}>
+              <Plus className="size-4" /> Add “{q.trim()}” as a new book or school supply
+            </li>
+          )}
           {items.map((b, i) => (
             <li
               key={b.id}

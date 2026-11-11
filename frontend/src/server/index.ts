@@ -1,0 +1,13 @@
+/** In-browser backend on Firebase: registers every module's routes and exposes `dispatch`. */
+import './admin'
+import './approvals'
+import './catalog'
+import './inventory'
+import './sales'
+import './reports'
+import './sample'
+import './purchasing'
+import './transfers'
+import './finance'
+import './schools'
+export { dispatch } from './router'

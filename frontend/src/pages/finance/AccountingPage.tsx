@@ -4,6 +4,7 @@ import * as React from 'react'
 import { toast } from 'sonner'
 import { DataTable } from '@/components/common/DataTable'
 import { SearchInput } from '@/components/common/Filters'
+import { DeleteButton } from '@/components/common/DeleteButton'
 import { PageHeader } from '@/components/common/PageHeader'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -74,7 +75,7 @@ export default function AccountingPage() {
                   {(accounts.data ?? []).filter((a) => a.type === g).map((a) => (
                     <li key={a.id} className="flex items-center justify-between gap-3 px-5 py-2 text-sm">
                       <span><span className="num mr-2 text-xs text-muted">{a.code}</span>{a.name}{a.is_cash_or_bank && <Badge tone="info" className="ml-2">Cash/bank</Badge>}{a.system_key && <Badge className="ml-1">System</Badge>}</span>
-                      <span className="num">{formatINR(a.balance)}</span>
+                      <span className="flex items-center gap-1"><span className="num">{formatINR(a.balance)}</span>{can('accounting.manage') && !a.system_key && <DeleteButton iconOnly path={`/accounts/${a.id}`} what={`account ${a.code}`} />}</span>
                     </li>
                   ))}
                 </ul>

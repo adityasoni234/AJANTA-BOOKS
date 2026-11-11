@@ -112,14 +112,14 @@ export default function AdjustmentsPage() {
 
 interface Line { book: Book; qty: string; unit_cost: string; copy_codes: string }
 
-function AdjustmentDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+export function AdjustmentDialog({ open, onOpenChange, initialReason = 'DAMAGE' }: { open: boolean; onOpenChange: (o: boolean) => void; initialReason?: string }) {
   const { locationId } = useAuth()
   const qc = useQueryClient()
   const [loc, setLoc] = React.useState<string | null>(locationId)
   const [reason, setReason] = React.useState('DAMAGE')
   const [notes, setNotes] = React.useState('')
   const [lines, setLines] = React.useState<Line[]>([])
-  React.useEffect(() => { if (open) { setLoc(locationId); setLines([]); setNotes('') } }, [open, locationId])
+  React.useEffect(() => { if (open) { setLoc(locationId); setLines([]); setNotes(''); setReason(initialReason) } }, [open, locationId, initialReason])
   const save = useMutation({
     mutationFn: async () => {
       const out = []
@@ -159,7 +159,7 @@ function AdjustmentDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
               </NativeSelect>
             </Field>
           </div>
-          <Field label="Add item"><BookSearch locationId={loc} onSelect={(b) => setLines((ls) => ls.some((x) => x.book.id === b.id) ? ls : [...ls, { book: b, qty: '1', unit_cost: '', copy_codes: '' }])} /></Field>
+          <Field label="Add item"><BookSearch allowCreate locationId={loc} onSelect={(b) => setLines((ls) => ls.some((x) => x.book.id === b.id) ? ls : [...ls, { book: b, qty: '1', unit_cost: b.purchase_price ?? '', copy_codes: '' }])} /></Field>
           {lines.length > 0 && (
             <div className="divide-y divide-border rounded-md border border-border">
               {lines.map((l, i) => (

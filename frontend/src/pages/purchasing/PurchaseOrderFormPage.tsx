@@ -79,7 +79,7 @@ export default function PurchaseOrderFormPage() {
       </Card>
       <Card>
         <CardHeader title="Order lines" description="Unit cost before discount; GST rate as charged by the supplier." />
-        <CardBody><BookSearch onSelect={add} placeholder="Add books by title, ISBN or barcode…" /></CardBody>
+        <CardBody><BookSearch allowCreate onSelect={add} placeholder="Add books by title, ISBN or barcode…" /></CardBody>
         {lines.length === 0 ? <EmptyState title="No lines yet" /> : (
           <Table>
             <THead><TR><TH>Book</TH><TH className="text-right">Qty</TH><TH className="text-right">Unit cost</TH><TH className="text-right">Disc %</TH><TH className="text-right">GST %</TH><TH className="text-right">Amount</TH><TH /></TR></THead>

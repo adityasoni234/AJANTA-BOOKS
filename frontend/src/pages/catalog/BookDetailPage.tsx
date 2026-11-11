@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { Barcode } from '@/components/common/Barcode'
 import { DataTable } from '@/components/common/DataTable'
 import { LocationSelect } from '@/components/common/Filters'
+import { DeleteButton } from '@/components/common/DeleteButton'
 import { PageHeader } from '@/components/common/PageHeader'
 import { ErrorState, PageLoader } from '@/components/common/States'
 import { Badge, StatusBadge } from '@/components/ui/badge'
@@ -68,6 +69,7 @@ export default function BookDetailPage() {
             <Button variant="secondary" asChild><Link to={`/inventory/labels?book=${b.id}`}><Printer /> Labels</Link></Button>
             {can('catalog.merge') && b.status !== 'ARCHIVED' && <Button variant="secondary" onClick={() => setMergeDialog(true)}><GitMerge /> Merge</Button>}
             {can('catalog.edit') && <Button asChild><Link to={`/catalog/${b.id}/edit`}><Pencil /> Edit</Link></Button>}
+            {can('catalog.archive') && !b.merged_into_id && <DeleteButton path={`/books/${b.id}`} what="book" onDeleted={() => navigate('/catalog')} />}
           </>
         }
       />
