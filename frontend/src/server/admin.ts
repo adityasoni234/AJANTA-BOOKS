@@ -41,8 +41,11 @@ publicRoute('POST', '/auth/login', async ({ body }) => {
   const cred = await signInWithEmailAndPassword(a, email, String(body.password ?? ''))
   const profile = await watchProfile(cred.user.uid)
   if (!profile || !profile.is_active || profile.can_login === false) {
+    const request = profile ? null : await getOne(`signup_requests/${cred.user.uid}`).catch(() => null)
     await signOut(a)
     clearProfile()
+    if (request?.status === 'PENDING') throw Unauthorized("Your account is waiting for the owner's approval. You can sign in once it is approved.", { code: 'approval_pending' })
+    if (request?.status === 'REJECTED') throw Unauthorized('Your sign-up request was not approved. Contact the store owner.', { code: 'approval_rejected' })
     throw Unauthorized('Invalid email or password', { code: 'invalid_credentials' })
   }
   const ctx = await loadCtx({ allowPendingPassword: true })
@@ -171,6 +174,72 @@ publicRoute('POST', '/setup', async ({ body }) => {
     resetAuthWait()
   }
   return { message: 'Setup complete. Sign in with the administrator account.' }
+})
+
+// ---------------------------------------------------------------- self sign-up (owner approves)
+publicRoute('POST', '/auth/signup', async ({ body }) => {
+  const email = lc(clean(body.email))
+  const full_name = clean(body.full_name) ?? ''
+  const pw = String(body.password ?? '')
+  if (full_name.length < 2) throw fieldError('full_name', 'Enter your full name')
+  if (!EMAIL_RE.test(email)) throw fieldError('email', 'value is not a valid email address')
+  const phone = clean(body.phone)
+  if (phone && !/^\+?\d{7,15}$/.test(phone)) throw fieldError('phone', 'Enter a valid phone number')
+  const problems = passwordProblems(pw, email)
+  if (problems.length) throw ValidationFailed('Password does not meet requirements', { details: problems })
+  if (!(await getOne('meta/setup'))) throw Conflict('This store has not been set up yet. The owner must complete first-time setup first.')
+  const a = auth()
+  const cred = await createUserWithEmailAndPassword(a, email, pw)
+  try {
+    await tx(async (u) => {
+      u.set(`signup_requests/${cred.user.uid}`, { email, full_name, phone, note: clean(body.note)?.slice(0, 500) ?? null, status: 'PENDING', created_at: u.at, decided_at: null, decided_by: null, decided_by_name: null, reason: null })
+    })
+  } finally {
+    await signOut(a)
+    clearProfile()
+    resetLive()
+    resetAuthWait()
+  }
+  return { message: "Request sent. You can sign in once the owner approves your account." }
+})
+
+route('GET', '/signup-requests', async ({ query }, ctx) => {
+  ctx.require('users.manage')
+  const { find } = await import('./store')
+  const { where } = await import('firebase/firestore')
+  const status = query.status ?? 'PENDING'
+  const rows = await find('signup_requests', where('status', '==', status))
+  return rows.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map((r) => ({ id: r.id, email: r.email, full_name: r.full_name, phone: r.phone ?? null, note: r.note ?? null, status: r.status, created_at: r.created_at }))
+})
+route('POST', '/signup-requests/:id/approve', async ({ params, body }, ctx) => {
+  ctx.require('users.manage')
+  const req = await getOne(`signup_requests/${params.id}`)
+  if (!req) throw NotFound('Sign-up request not found')
+  if (req.status !== 'PENDING') throw Conflict(`This request is already ${String(req.status).toLowerCase()}`)
+  const role = await guardAssignment(ctx, body)
+  const allLoc = !!body.all_locations
+  const locationIds = allLoc ? [] : [...new Set((body.location_ids ?? []) as string[])]
+  return tx(async (u) => {
+    const cur = await u.need(`signup_requests/${params.id}`, 'Sign-up request')
+    if (cur.status !== 'PENDING') throw Conflict(`This request is already ${String(cur.status).toLowerCase()}`)
+    const doc = { email: req.email, full_name: req.full_name, phone: req.phone ?? null, employee_code: null, designation: clean(body.designation), joined_on: null, role_id: role.id, role_code: role.code, role_name: role.name,
+      perms: [...role.permissions].sort(), all_locations: allLoc, location_ids: locationIds, is_active: true, can_login: true, must_change_password: false, last_login_at: null, created_at: u.at }
+    u.set(`users/${params.id}`, doc)
+    await u.update(`signup_requests/${params.id}`, { status: 'APPROVED', decided_at: u.at, decided_by: ctx.uid, decided_by_name: ctx.name })
+    ctx.audit(u, 'user.signup_approved', { entity_type: 'user', entity_id: params.id, details: { email: req.email, role: role.code, locations: locationIds, all_locations: allLoc } })
+    return userOut({ ...doc, id: params.id })
+  })
+})
+route('POST', '/signup-requests/:id/reject', async ({ params, body }, ctx) => {
+  ctx.require('users.manage')
+  return tx(async (u) => {
+    const cur = await u.get(`signup_requests/${params.id}`)
+    if (!cur) throw NotFound('Sign-up request not found')
+    if (cur.status !== 'PENDING') throw Conflict(`This request is already ${String(cur.status).toLowerCase()}`)
+    await u.update(`signup_requests/${params.id}`, { status: 'REJECTED', decided_at: u.at, decided_by: ctx.uid, decided_by_name: ctx.name, reason: clean(body.reason) })
+    ctx.audit(u, 'user.signup_rejected', { entity_type: 'user', entity_id: params.id, details: { email: cur.email } })
+    return { status: 'REJECTED' }
+  })
 })
 
 // ---------------------------------------------------------------- locations

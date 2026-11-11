@@ -89,15 +89,21 @@ route('GET', '/notifications', async ({ query }, ctx) => {
   const readAt = (ctx.user.notif_read_at as string | undefined) ?? ''
   const since = new Date(Date.now() - 14 * 86_400_000).toISOString()
   const rows = ctx.has('approvals.view') ? await visibleApprovals(ctx) : await find('approvals', where('requested_by', '==', ctx.uid), limit(200))
-  const items = rows.flatMap((r) => {
+  const items: { id: string; kind: string; title: string; body: unknown; link: string; created_at: string }[] = rows.flatMap((r) => {
     if (canDecide(ctx, r)) return [{ id: `${r.id}:req`, kind: 'APPROVAL_REQUESTED', title: `Approval needed: ${r.title}`, body: r.reason, link: '/approvals', created_at: r.requested_at }]
     if (r.requested_by === ctx.uid && r.decided_at && r.decided_at >= since && ['APPROVED', 'REJECTED'].includes(r.status)) {
       return [{ id: `${r.id}:dec`, kind: 'APPROVAL_DECIDED', title: `${r.status === 'APPROVED' ? 'Approved' : 'Rejected'}: ${r.title}`, body: r.decision_note, link: (LINKS[r.type] ?? '/approvals').replace('{id}', r.entity_id ?? r.id), created_at: r.decided_at }]
     }
     return []
-  }).map((n) => ({ ...n, read_at: n.created_at <= readAt ? readAt : null })).sort((a, b) => b.created_at.localeCompare(a.created_at))
-  const unread = items.filter((n) => !n.read_at).length
-  const list = query.unread_only === 'true' ? items.filter((n) => !n.read_at) : items
+  })
+  if (ctx.has('users.manage')) {
+    for (const r of await find('signup_requests', where('status', '==', 'PENDING')).catch(() => [] as Row[])) {
+      items.push({ id: `${r.id}:signup`, kind: 'SIGNUP_REQUESTED', title: `New sign-up waiting for approval: ${r.full_name}`, body: r.email, link: '/admin/users', created_at: r.created_at })
+    }
+  }
+  const list0 = items.map((n) => ({ ...n, read_at: n.created_at <= readAt ? readAt : null })).sort((a, b) => b.created_at.localeCompare(a.created_at))
+  const unread = list0.filter((n) => !n.read_at).length
+  const list = query.unread_only === 'true' ? list0.filter((n) => !n.read_at) : list0
   const p = paginate(list, Number(query.page), Number(query.page_size))
   return { ...p, unread }
 })

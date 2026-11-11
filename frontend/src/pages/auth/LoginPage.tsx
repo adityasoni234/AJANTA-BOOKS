@@ -52,6 +52,9 @@ export default function LoginPage() {
         <p className="text-center text-xs text-muted">
           <Link to="/reset-password" className="text-primary hover:underline">Forgot password?</Link>
         </p>
+        <p className="border-t border-border pt-4 text-center text-sm text-muted">
+          New to the team? <Link to="/signup" className="font-medium text-primary hover:underline">Create an account</Link>
+        </p>
       </form>
     </AuthLayout>
   )

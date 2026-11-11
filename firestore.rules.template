@@ -57,6 +57,13 @@ service cloud.firestore {
         || (request.auth.uid == uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['last_login_at', 'must_change_password', 'password_changed_at', 'notif_read_at'])
           && (request.resource.data.must_change_password == resource.data.must_change_password || request.resource.data.must_change_password == false));
     }
+    // Self sign-up: a new account may file its own request; only user managers can read others or decide.
+    match /signup_requests/{uid} {
+      allow create: if signedIn() && request.auth.uid == uid && setupDone() && request.resource.data.status == 'PENDING'
+        && request.resource.data.email == request.auth.token.email;
+      allow read: if (signedIn() && request.auth.uid == uid) || can('users.manage');
+      allow update: if can('users.manage');
+    }
     match /locations/{id} { allow read: if active(); allow write: if settingUp() || can('locations.manage'); }
     match /counters/{id} { allow read, write: if active(); }
     match /audit_logs/{id} {
