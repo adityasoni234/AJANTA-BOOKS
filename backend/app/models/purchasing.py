@@ -59,6 +59,11 @@ class PurchaseOrder(UUIDPk, Timestamps, Base):
     issued_at: Mapped[datetime | None] = mapped_column()
     closed_at: Mapped[datetime | None] = mapped_column()
     cancel_reason: Mapped[str | None] = mapped_column(String(300))
+    # Set for purchase orders raised from a school order (one per author).
+    school_order_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("school_orders.id"), index=True)
+    author_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("authors.id"))
+    # When the order email was last opened in the user's mail app (the system cannot confirm sending).
+    email_opened_at: Mapped[datetime | None] = mapped_column()
 
     supplier = relationship("Supplier", lazy="joined")
     lines: Mapped[list["PurchaseOrderLine"]] = relationship(

@@ -7,7 +7,7 @@ from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, EmailStr, Field, ValidationError
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
@@ -754,13 +754,41 @@ def publishers(q: str | None = Query(None, max_length=100), _: AuthContext = Dep
     return [{"id": p.id, "name": p.name} for p in db.scalars(stmt)]
 
 
+def _author_out(a: Author, books: int | None = None, supplier: Supplier | None = None) -> dict:
+    return {"id": a.id, "name": a.name, "email": a.email, "phone": a.phone, "books": books,
+            "supplier_id": a.supplier_id, "supplier_code": supplier.code if supplier else None}
+
+
 @router.get("/authors")
-def authors(q: str | None = Query(None, max_length=100), _: AuthContext = Depends(require("catalog.view")),
-            db: Session = Depends(get_db)):
-    stmt = select(Author).order_by(Author.name).limit(50)
+def authors(q: str | None = Query(None, max_length=100), missing_email: bool = False, limit: int = Query(50, ge=1, le=200),
+            _: AuthContext = Depends(require("catalog.view")), db: Session = Depends(get_db)):
+    books = (select(BookAuthor.author_id, func.count().label("n")).join(Book, Book.id == BookAuthor.book_id)
+             .where(Book.merged_into_id.is_(None)).group_by(BookAuthor.author_id).subquery())
+    stmt = (select(Author, func.coalesce(books.c.n, 0), Supplier).outerjoin(books, books.c.author_id == Author.id)
+            .outerjoin(Supplier, Supplier.id == Author.supplier_id).order_by(Author.name).limit(limit))
     if q:
-        stmt = stmt.where(Author.name.ilike(f"%{q}%"))
-    return [{"id": a.id, "name": a.name} for a in db.scalars(stmt)]
+        stmt = stmt.where(Author.name.ilike(f"%{q}%") | Author.email.ilike(f"%{q}%"))
+    if missing_email:
+        stmt = stmt.where(Author.email.is_(None))
+    return [_author_out(a, n, sup) for a, n, sup in db.execute(stmt)]
+
+
+class AuthorContactIn(BaseModel):
+    email: EmailStr | None = None
+    phone: str | None = Field(default=None, max_length=30)
+
+
+@router.put("/authors/{author_id}")
+def update_author(author_id: uuid.UUID, body: AuthorContactIn,
+                  ctx: AuthContext = Depends(require_any("catalog.master_data", "schools.manage")), db: Session = Depends(get_db)):
+    a = db.get(Author, author_id)
+    if a is None:
+        raise NotFound("Author not found")
+    a.email = str(body.email).lower() if body.email else None
+    a.phone = (body.phone or "").strip() or None
+    audit(db, ctx, "catalog.author_contact_updated", entity_type="author", entity_id=a.id, details={"name": a.name})
+    db.commit()
+    return _author_out(a, supplier=db.get(Supplier, a.supplier_id) if a.supplier_id else None)
 
 
 # Registered last so static /books/... paths above take precedence over the id route.

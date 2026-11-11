@@ -18,6 +18,8 @@ No message brokers or caches — PostgreSQL transactions, row locks and constrai
 | Expenses, accounts, journals, cashbook, bank reconciliation | `finance.py` | `finance.py`, `accounting.py` |
 | Reports & dashboard | `reports.py` | `reports.py` |
 | Approvals & notifications | `approvals.py` | `approvals.py`, `notify.py` |
+| Outlet supervision (owner) | `outlets.py` | `reports.py` |
+| Schools, class book lists, school orders | `schools.py` | `schools.py` (uses `purchasing.py`, `catalog.py`) |
 
 Routers validate input (Pydantic), resolve the caller's permissions and location scope, and delegate to
 services. Services own transactions' business rules; routers commit.
@@ -104,6 +106,25 @@ Weighted-average cost per location. All entries are system-posted and balanced:
 
 Corrections are made by reversal entries or through the source document (void, return, adjustment); posted
 entries are never edited.
+
+## School book lists
+
+* A **school** (organisation-wide, owned by the main owner) has one **book list** per class and academic year;
+  each list item says how many copies of a book one student set needs (`qty_per_set`).
+* **Complete sets** at a location = min over the list of `floor((on_hand − reserved) / qty_per_set)`. "With on
+  order" adds outstanding quantities on approved/issued purchase orders for that location. Viewers see only the
+  locations in their scope (a shop owner sees their shop; the owner sees all).
+* **Excel import** (`.xlsx`, first sheet, template columns) is validated in full before anything is written:
+  ISBN checksums, academic year, school-name consistency, duplicates within a class, one email per author, and
+  MRP + GST for books not yet in the catalog. Books match by ISBN, else by exact title + first author. Commit
+  re-validates and runs in one transaction; re-importing a class replaces that class's list.
+* **School order** = chosen classes × number of sets at one delivery location. Suggested quantity per book is
+  `required − available − on order`, editable before creating. One purchase order is raised per **first
+  author** (a supplier account is created and linked to the author on their first order) and submitted through
+  the normal approval rules. Receiving those purchase orders is the only thing that raises stock and sets.
+* **Order email**: the server renders a stored template (placeholders validated on save) for a purchase order;
+  the browser opens it as a `mailto:` draft. The server records `email_opened_at` only; it never claims the
+  email was sent.
 
 ## Frontend
 

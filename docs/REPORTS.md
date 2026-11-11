@@ -32,3 +32,19 @@ from sales metrics; their reversal entries cancel them in the ledger.
 | Register variance | counted cash − (opening float + cash received − cash refunds − cash expenses) |
 
 Sales revenue, cash collected and profit are reported separately and never substituted for one another.
+
+## Outlet supervision
+
+The **Outlets** section (sidebar) lists every location the viewer can access. Its figures use the same
+functions as the table above, restricted to one location:
+
+* **Today / This week / This month**: invoice value (incl. GST), bills, average bill, net sales, discounts and
+  returns. Weeks start on Monday; the month starts on the 1st. Gross profit is shown only with
+  `reports.financial`.
+* **Stock ready to sell** = on hand − reserved; also reserved, damaged, quarantined and in-transit units, titles
+  in stock, value at selling price and (financial access only) at weighted-average cost, and the same split by
+  category.
+* Low / out-of-stock and long-unsold counts, open counters, transfers in progress, approvals, books on order
+  and expenses this month; best sellers, categories and staff by net sales this month; staff assigned to the
+  location. Screens reload every 30 seconds.
+

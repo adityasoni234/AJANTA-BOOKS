@@ -29,6 +29,8 @@ PERMISSIONS: dict[str, tuple[str, str]] = {
     "purchasing.approve": ("purchasing", "Approve purchase orders"),
     "purchasing.receive": ("purchasing", "Receive goods (GRN)"),
     "purchasing.return": ("purchasing", "Return goods to supplier"),
+    "schools.view": ("schools", "View schools, class book lists and sets available"),
+    "schools.manage": ("schools", "Manage schools and book lists, import lists, order school books"),
     "transfers.view": ("transfers", "View stock transfers"),
     "transfers.create": ("transfers", "Request stock transfers"),
     "transfers.approve": ("transfers", "Approve stock transfers"),
@@ -81,7 +83,7 @@ ROLE_TEMPLATES: dict[str, dict] = {
             "catalog.import", "catalog.master_data", "inventory.view", "inventory.adjust", "inventory.approve",
             "inventory.stocktake", "inventory.copies", "inventory.settings", "suppliers.view", "suppliers.manage",
             "purchasing.view", "purchasing.create", "purchasing.approve", "purchasing.receive", "purchasing.return",
-            "transfers.view", "transfers.create", "transfers.approve", "transfers.dispatch", "transfers.receive",
+            "schools.view", "schools.manage", "transfers.view", "transfers.create", "transfers.approve", "transfers.dispatch", "transfers.receive",
             "reports.view", "reports.export", "approvals.view",
         },
     },
@@ -91,7 +93,7 @@ ROLE_TEMPLATES: dict[str, dict] = {
         "permissions": {
             "dashboard.view", "catalog.view", "inventory.view", "inventory.adjust", "inventory.stocktake",
             "inventory.copies", "inventory.settings", "suppliers.view", "purchasing.view", "purchasing.receive",
-            "transfers.view", "transfers.create", "transfers.dispatch", "transfers.receive", "pos.sell",
+            "schools.view", "transfers.view", "transfers.create", "transfers.dispatch", "transfers.receive", "pos.sell",
             "pos.discount", "pos.discount_override", "pos.void", "pos.credit_sale", "sales.view", "returns.create", "returns.approve",
             "registers.operate", "registers.manage", "customers.view", "customers.manage", "expenses.view",
             "expenses.create", "reports.view", "reports.export", "approvals.view", "users.view",
@@ -101,7 +103,7 @@ ROLE_TEMPLATES: dict[str, dict] = {
         "name": "Cashier",
         "description": "Point of sale, receipts and eligible returns at assigned outlet.",
         "permissions": {
-            "catalog.view", "inventory.view", "pos.sell", "pos.discount", "sales.view", "returns.create",
+            "catalog.view", "inventory.view", "schools.view", "pos.sell", "pos.discount", "sales.view", "returns.create",
             "registers.operate", "customers.view", "customers.manage",
         },
     },
@@ -112,7 +114,7 @@ ROLE_TEMPLATES: dict[str, dict] = {
             "dashboard.view", "catalog.view", "inventory.view", "suppliers.view", "purchasing.view", "sales.view",
             "customers.view", "expenses.view", "expenses.create", "expenses.approve", "finance.view",
             "finance.manage", "accounting.view", "accounting.manage", "reports.view", "reports.financial",
-            "reports.export", "registers.manage", "approvals.view", "transfers.view",
+            "reports.export", "registers.manage", "approvals.view", "transfers.view", "schools.view",
         },
     },
     "AUDITOR": {
@@ -121,7 +123,7 @@ ROLE_TEMPLATES: dict[str, dict] = {
         "permissions": {
             "dashboard.view", "catalog.view", "inventory.view", "suppliers.view", "purchasing.view",
             "transfers.view", "sales.view", "customers.view", "expenses.view", "finance.view", "accounting.view",
-            "reports.view", "reports.financial", "audit.view",
+            "reports.view", "reports.financial", "audit.view", "schools.view",
         },
     },
 }

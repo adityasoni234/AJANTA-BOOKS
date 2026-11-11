@@ -7,7 +7,7 @@
 * **CSRF:** every POST/PUT/PATCH/DELETE must send `X-CSRF-Token: <csrf_token>`.
 * **Idempotency:** money- and stock-moving creates require `Idempotency-Key: <uuid>` (8–80 chars):
   `POST /pos/checkout`, `/goods-receipts`, `/returns`, `/supplier-payments`, `/supplier-returns`,
-  `/customers/{id}/receipts`, `/transfers/{id}/receive`, `/transfers/{id}/resolve`; optional for `/expenses`.
+  `/customers/{id}/receipts`, `/transfers/{id}/receive`, `/transfers/{id}/resolve`, `/school-orders`; optional for `/expenses`.
   Repeating a request with the same key returns the original result (`"replayed": true` where applicable).
 * **Money** is always a decimal string (`"1234.50"`); quantities are integers.
 * **Pagination:** `?page=1&page_size=25` (max 200) → `{ "items": [...], "total", "page", "page_size" }`.
@@ -45,4 +45,6 @@
 | Customers & returns | `/customers` (+ `/history`, `/ledger`, `/redeem-points`, `/receipts`), `/returns`, `/exchange-method` |
 | Finance | `/accounts`, `/journals` (+ `/reverse`), `/cashbook`, `/fund-transfers`, `/bank-reconciliations`, `/expenses` (+ `/receipt`), `/expense-categories` |
 | Reports | `/dashboard`, `/reports/sales-summary`, `/sales-by`, `/sales-trend`, `/payments`, `/gst-register`, `/gst-summary`, `/inventory-valuation`, `/stock-analysis`, `/profit-loss`, `/cash-flow`, `/balance-sheet`, `/trial-balance`, `/supplier-aging`, `/receivables-aging`, `/expenses`, `/registers` |
+| Outlets | `/outlets/summary`, `/outlets/{location_id}/overview` |
+| Schools | `/schools` (+ `/{id}/lists`), `/book-lists/{id}` (+ `/items`), `/book-lists/import/template`, `/book-lists/import/preview`, `/book-lists/import/commit`, `/school-orders/preview`, `/school-orders`, `/school-order-email-template` (+ `/preview`), `/purchase-orders/{id}/author-email` (+ `/opened`), `/authors/{id}` |
 | Workflow | `/approvals` (+ `/decision`), `/notifications`, `/notifications/read` |

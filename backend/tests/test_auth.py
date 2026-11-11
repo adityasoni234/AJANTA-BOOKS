@@ -156,4 +156,4 @@ def test_setup_flow_requires_token_and_only_runs_once(monkeypatch, anon):
 def test_health_endpoints(anon):
     assert anon.get("/health/live").json()["status"] == "ok"
     r = anon.get("/health/ready")
-    assert r.status_code == 200 and r.json()["migration"] == "0002"
+    assert r.status_code == 200 and r.json()["migration"] == "0003"

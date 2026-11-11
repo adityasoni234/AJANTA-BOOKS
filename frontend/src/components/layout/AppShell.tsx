@@ -1,8 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeftRight, BadgeCheck, Banknote, Bell, BookOpen, Boxes, Building2, ChartColumn, ClipboardCheck, ClipboardList,
-  FileClock, KeyRound, Landmark, LayoutDashboard, LogOut, Menu, PackageCheck, Receipt, RotateCcw, ScanBarcode,
-  Settings, ShieldCheck, ShoppingCart, Store, Tag, Truck, UserCog, Users, Wallet, X,
+  FileClock, KeyRound, Landmark, LayoutDashboard, LayoutGrid, LogOut, Menu, PackageCheck, PenLine, Receipt, RotateCcw, ScanBarcode,
+  School, Settings, Warehouse, ShieldCheck, ShoppingCart, Store, Tag, Truck, UserCog, Users, Wallet, X,
 } from 'lucide-react'
 import * as React from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dropdown'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
+import type { LocationBrief } from '@/lib/types'
 import { cn, formatDate } from '@/lib/utils'
 
 interface NavItem {
@@ -37,6 +38,8 @@ const NAV: { group: string; items: NavItem[] }[] = [
   ] },
   { group: 'Inventory', items: [
     { to: '/catalog', label: 'Book catalog', icon: BookOpen, perms: ['catalog.view'] },
+    { to: '/catalog/authors', label: 'Authors', icon: PenLine, perms: ['catalog.view'] },
+    { to: '/schools', label: 'Schools & book lists', icon: School, perms: ['schools.view'] },
     { to: '/inventory', label: 'Stock', icon: Boxes, perms: ['inventory.view'] },
     { to: '/inventory/copies', label: 'Copies & labels', icon: ScanBarcode, perms: ['inventory.view'] },
     { to: '/transfers', label: 'Transfers', icon: ArrowLeftRight, perms: ['transfers.view'] },
@@ -66,8 +69,21 @@ const NAV: { group: string; items: NavItem[] }[] = [
   ] },
 ]
 
+/** One entry per location the user can supervise, built from their live location access. */
+function outletGroup(locations: LocationBrief[]): { group: string; items: NavItem[] } {
+  const sorted = [...locations].sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'WAREHOUSE' ? -1 : 1))
+  return {
+    group: 'Outlets',
+    items: [
+      ...(sorted.length > 1 ? [{ to: '/outlets', label: 'All outlets', icon: LayoutGrid, perms: ['dashboard.view'] }] : []),
+      ...sorted.map((l) => ({ to: `/outlets/${l.id}`, label: l.name, icon: l.type === 'WAREHOUSE' ? Warehouse : Store, perms: ['dashboard.view'] })),
+    ],
+  }
+}
+
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { canAny, me } = useAuth()
+  const groups = [NAV[0], outletGroup(me?.locations ?? []), ...NAV.slice(1)]
   return (
     <nav aria-label="Main navigation" className="flex h-full flex-col">
       <Link to="/" className="flex items-center gap-2.5 px-5 py-4" onClick={onNavigate}>
@@ -80,7 +96,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       </Link>
       <div className="flex-1 space-y-5 overflow-y-auto px-3 pb-6">
-        {NAV.map((g) => {
+        {groups.map((g) => {
           const items = g.items.filter((i) => !i.perms || canAny(...i.perms))
           if (!items.length) return null
           return (
@@ -91,7 +107,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                   <li key={i.to}>
                     <NavLink
                       to={i.to}
-                      end={i.to === '/' || i.to === '/inventory'}
+                      end={i.to === '/' || i.to === '/inventory' || i.to === '/catalog' || i.to === '/outlets'}
                       onClick={onNavigate}
                       className={({ isActive }) =>
                         cn('flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-slate-600 transition-colors hover:bg-surface-2 hover:text-foreground',

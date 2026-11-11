@@ -18,6 +18,7 @@ from app.api.deps import AuthContext
 from app.models import (
     Account,
     Book,
+    BookList,
     Category,
     Customer,
     ExpenseCategory,
@@ -27,6 +28,7 @@ from app.models import (
     Register,
     Role,
     Sale,
+    School,
     Supplier,
     TaxClass,
     User,
@@ -34,6 +36,7 @@ from app.models import (
 )
 from app.services import finance, purchasing, returns, sales, transfers
 from app.services import inventory as inv
+from app.services import schools as schools_svc
 from app.services.auth import set_password
 from app.services.bootstrap import ensure_reference_data
 from app.services.catalog import BookIn, create_book
@@ -452,6 +455,37 @@ def seed_demo(db: Session, password: str) -> None:
                            category_id=exp_cats["Maintenance"].id if "Maintenance" in exp_cats else exp_cats["Miscellaneous"].id,
                            expense_date=date.today(), amount=D("7800"), description="AC servicing (annual)", vendor="CoolAir Services",
                            paid_from_account_id=bank_acc.id, register_session_id=None, reference=None)
+
+    # School tie-ups: class book lists, author emails for order mails, and one school order to the warehouse.
+    by_title = {b.title: b for b in books}
+    academic = [by_title[t] for t in ACADEMIC]
+    for b in academic + regular[:4]:
+        a = b.authors[0].author
+        a.email = a.email or f"{a.name.lower().replace(' ', '.')}@authors.test"
+    today = date.today()
+    start = today.year if today.month >= 4 else today.year - 1
+    year = f"{start}-{(start + 1) % 100:02d}"
+    mmps = School(code="MMPS", name="MMPS Senior Secondary School", city="Mumbai", contact_person="Principal's office",
+                  phone="+91 22 4000 1100")
+    ghs = School(code="GHS", name="Greenfield High School", city="Pune", phone="+91 20 2600 4400")
+    db.add_all([mmps, ghs])
+    db.flush()
+    class_lists = {}
+    for school, cls, items in ((mmps, "11", [(academic[0], 1), (academic[1], 1), (academic[4], 1), (regular[0], 1)]),
+                               (mmps, "12", [(academic[0], 1), (academic[2], 1), (academic[3], 2), (regular[1], 1)]),
+                               (ghs, "10", [(regular[2], 1), (regular[3], 1)])):
+        lst = BookList(school_id=school.id, academic_year=year, class_name=cls)
+        db.add(lst)
+        db.flush()
+        schools_svc.set_list_items(db, lst, [(b.id, q) for b, q in items])
+        class_lists[(school.code, cls)] = lst
+    octx = ctx_for(db, owner)
+    scope = schools_svc.resolve_order_scope(db, octx, mmps.id, locs["WH-BHW"].id, [(class_lists[("MMPS", "11")].id, 150)])
+    lines = [{"book_id": r["book_id"], "qty": r["suggested"], "unit_cost": r["unit_cost"]}
+             for r in schools_svc.order_requirements(db, scope) if r["suggested"] > 0]
+    assert lines, "demo school order needs at least one book short at the warehouse"
+    schools_svc.create_school_order(db, octx, scope, lines=lines, notes="Opening stock for the new session",
+                                    expected_date=None, idempotency_key="seed-school-order-1")
     db.commit()
     issues = inv.reconcile(db)
     print(f"Inventory reconciliation issues: {len(issues)}")

@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardBody, CardHeader } from '@/components/ui/card'
 import { TBody, TD, TH, THead, TR, Table } from '@/components/ui/table'
 import { useDateRange } from '@/lib/hooks'
+import { LIVE_REFRESH_MS } from '@/lib/queries'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { formatDate, formatINR, formatNumber } from '@/lib/utils'
@@ -53,6 +54,7 @@ export default function DashboardPage() {
   const q = useQuery({
     queryKey: ['dashboard', range.from, range.to, locationId],
     queryFn: () => api.get<Dashboard>('/dashboard', { date_from: range.from, date_to: range.to, location_id: locationId ?? undefined }),
+    refetchInterval: LIVE_REFRESH_MS,
   })
   const scopeLabel = location ? location.name : me?.all_locations ? 'All locations' : 'Your locations'
 

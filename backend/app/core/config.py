@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     smtp_from: str | None = None
     smtp_starttls: bool = True
-    public_app_url: str = "http://localhost:5173"
+    public_app_url: str = "http://localhost:5199"
 
     @field_validator("database_url")
     @classmethod

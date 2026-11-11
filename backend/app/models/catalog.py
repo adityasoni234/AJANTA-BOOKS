@@ -43,6 +43,10 @@ class Publisher(UUIDPk, Base):
 class Author(UUIDPk, Base):
     __tablename__ = "authors"
     name: Mapped[str] = mapped_column(String(200))
+    # Contact used for school-book order emails; supplier_id is the account purchase orders are raised on.
+    email: Mapped[str | None] = mapped_column(String(200))
+    phone: Mapped[str | None] = mapped_column(String(30))
+    supplier_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("suppliers.id"))
     __table_args__ = (Index("uq_authors_name", func.lower(name), unique=True),)
 
 

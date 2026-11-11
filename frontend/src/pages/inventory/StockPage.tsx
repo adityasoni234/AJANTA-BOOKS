@@ -10,6 +10,7 @@ import { Badge, StatusBadge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { NativeSelect } from '@/components/ui/input'
+import { LIVE_REFRESH_MS } from '@/lib/queries'
 import { api, type Page } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { useDebounced } from '@/lib/hooks'
@@ -35,8 +36,9 @@ export default function StockPage() {
     queryKey: ['inventory', locationId, dq, status, page],
     queryFn: ({ signal }) => api.get<Page<Balance>>('/inventory', { location_id: locationId ?? undefined, q: dq, status, page, page_size: 30 }, signal),
     placeholderData: keepPreviousData,
+    refetchInterval: LIVE_REFRESH_MS,
   })
-  const summary = useQuery({ queryKey: ['inventory-summary'], queryFn: () => api.get<Summary[]>('/inventory/summary') })
+  const summary = useQuery({ queryKey: ['inventory-summary'], queryFn: () => api.get<Summary[]>('/inventory/summary'), refetchInterval: LIVE_REFRESH_MS })
   const scoped = (summary.data ?? []).filter((s) => !locationId || s.location_id === locationId)
   const totals = scoped.reduce((a, s) => ({
     on_hand: a.on_hand + s.on_hand, transit: a.transit + s.in_transit, unsellable: a.unsellable + s.unsellable,

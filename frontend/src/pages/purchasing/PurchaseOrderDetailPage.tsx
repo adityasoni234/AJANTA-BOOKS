@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { Check, PackageCheck, Pencil, Send, X } from 'lucide-react'
+import { Check, Mail, PackageCheck, Pencil, Send, X } from 'lucide-react'
 import * as React from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -14,6 +14,7 @@ import { TBody, TD, TH, THead, TR, Table } from '@/components/ui/table'
 import { api, errorMessage } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { formatDate, formatINR } from '@/lib/utils'
+import { AuthorEmailDialog } from '../schools/AuthorEmailDialog'
 import { ReceiveGoodsDialog } from './ReceiveGoodsDialog'
 import type { PO } from './types'
 
@@ -22,6 +23,7 @@ export default function PurchaseOrderDetailPage() {
   const { can, me } = useAuth()
   const q = useQuery({ queryKey: ['po', id], queryFn: () => api.get<PO>(`/purchase-orders/${id}`) })
   const [receive, setReceive] = React.useState(false)
+  const [email, setEmail] = React.useState(false)
   const [confirm, setConfirm] = React.useState<null | 'cancel' | 'reject' | 'approve'>(null)
   const [reason, setReason] = React.useState('')
   const act = useMutation({
@@ -44,7 +46,8 @@ export default function PurchaseOrderDetailPage() {
           {po.status === 'DRAFT' && can('purchasing.create') && <Button variant="secondary" asChild><Link to={`/purchasing/orders/${po.id}/edit`}><Pencil /> Edit</Link></Button>}
           {po.status === 'DRAFT' && can('purchasing.create') && <Button loading={act.isPending} onClick={() => act.mutate({ path: 'submit' })}><Send /> Submit</Button>}
           {canApprove && <><Button variant="secondary" onClick={() => setConfirm('reject')}><X /> Reject</Button><Button onClick={() => setConfirm('approve')}><Check /> Approve</Button></>}
-          {po.status === 'APPROVED' && can('purchasing.create') && <Button loading={act.isPending} onClick={() => act.mutate({ path: 'issue' })}><Send /> Issue to supplier</Button>}
+          {po.author_id && ['APPROVED', 'ISSUED', 'PARTIALLY_RECEIVED'].includes(po.status) && can('purchasing.create') && <Button variant={po.status === 'APPROVED' ? 'primary' : 'secondary'} onClick={() => setEmail(true)}><Mail /> Email author</Button>}
+          {po.status === 'APPROVED' && can('purchasing.create') && <Button variant={po.author_id ? 'secondary' : 'primary'} loading={act.isPending} onClick={() => act.mutate({ path: 'issue' })}><Send /> {po.author_id ? 'Mark issued' : 'Issue to supplier'}</Button>}
           {['ISSUED', 'PARTIALLY_RECEIVED'].includes(po.status) && can('purchasing.receive') && <Button onClick={() => setReceive(true)}><PackageCheck /> Receive goods</Button>}
           {!['RECEIVED', 'CLOSED', 'CANCELLED'].includes(po.status) && can('purchasing.create') && <Button variant="danger-outline" onClick={() => setConfirm('cancel')}>{received ? 'Close short' : 'Cancel'}</Button>}
         </>}
@@ -84,6 +87,9 @@ export default function PurchaseOrderDetailPage() {
               <p><span className="text-muted">Created by:</span> {po.created_by_name}</p>
               <p><span className="text-muted">Approved:</span> {formatDate(po.approved_at, true)}</p>
               <p><span className="text-muted">Issued:</span> {formatDate(po.issued_at, true)}</p>
+              {po.school_order_id && <p><span className="text-muted">School order:</span> <Link to={`/schools/orders/${po.school_order_id}`} className="font-medium hover:text-primary">{po.school_order_number}</Link></p>}
+              {po.author_name && <p><span className="text-muted">Author:</span> {po.author_name}{po.author_email ? ` · ${po.author_email}` : ''}</p>}
+              {po.author_id && <p><span className="text-muted">Order email:</span> {po.email_opened_at ? `opened ${formatDate(po.email_opened_at, true)}` : 'not opened yet'}</p>}
               {po.notes && <p className="pt-2 text-slate-600">{po.notes}</p>}
             </CardBody>
           </Card>
@@ -102,6 +108,7 @@ export default function PurchaseOrderDetailPage() {
           </Card>
         </div>
       </div>
+      <AuthorEmailDialog poId={po.author_id ? po.id : null} open={email} onOpenChange={setEmail} onOpened={() => void q.refetch()} />
       <ReceiveGoodsDialog po={po} open={receive} onOpenChange={(o) => { setReceive(o); if (!o) void q.refetch() }} />
       <ConfirmDialog open={confirm === 'cancel'} onOpenChange={(o) => !o && setConfirm(null)} tone="danger" title={received ? 'Close purchase order short?' : 'Cancel purchase order?'}
         description={received ? 'Outstanding quantities will be cancelled. Received stock is unaffected.' : 'The order will be cancelled.'} confirmLabel="Confirm" loading={act.isPending}

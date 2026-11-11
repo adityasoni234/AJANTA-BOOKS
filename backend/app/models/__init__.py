@@ -69,6 +69,7 @@ from app.models.sales import (
     Sale,
     SaleLine,
 )
+from app.models.schools import BookList, BookListItem, School, SchoolOrder, SchoolOrderClass
 from app.models.transfers import StockTransfer, StockTransferLine, TransferLineCopy, TransferReceipt
 
 __all__ = [n for n in dir() if not n.startswith("_")]

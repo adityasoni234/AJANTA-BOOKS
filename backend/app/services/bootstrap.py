@@ -43,10 +43,12 @@ PAYMENT_METHODS = [
 
 
 def ensure_reference_data(db: Session) -> None:
+    introduced: set[str] = set()
     for code, (module, desc) in PERMISSIONS.items():
         p = db.get(Permission, code)
         if p is None:
             db.add(Permission(code=code, module=module, description=desc))
+            introduced.add(code)
         else:
             p.module, p.description = module, desc
     db.flush()
@@ -56,9 +58,11 @@ def ensure_reference_data(db: Session) -> None:
             role = Role(code=code, name=tpl["name"], description=tpl["description"], is_system=True)
             role.permissions = [RolePermission(permission_code=p) for p in sorted(tpl["permissions"])]
             db.add(role)
-        elif code == "OWNER":
-            have = role.permission_codes
-            for p in sorted(set(PERMISSIONS) - have):
+        else:
+            # Owner always holds everything. Other system roles receive only permissions introduced by
+            # this upgrade, so an administrator's earlier customisation of the role is left intact.
+            grant = set(PERMISSIONS) if code == "OWNER" else tpl["permissions"] & introduced
+            for p in sorted(grant - role.permission_codes):
                 role.permissions.append(RolePermission(permission_code=p))
     db.flush()
     accounting.ensure_chart_of_accounts(db)

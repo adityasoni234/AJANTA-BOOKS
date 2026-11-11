@@ -24,3 +24,8 @@ frontend/playwright/.cache/
 # Backups
 backups/
 *.dump
+# Local test logins (never commit)
+local-credentials.txt
+
+# Firebase CLI cache
+.firebase/

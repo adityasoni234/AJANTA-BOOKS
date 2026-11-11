@@ -3,14 +3,15 @@
 A multi-outlet bookstore CRM + ERP: central catalog, warehouse and outlet inventory (quantity and
 individual-copy tracking), purchasing, stock transfers, a keyboard/scanner-friendly POS with Indian GST
 billing, returns and exchanges, customers and loyalty, registers and cash reconciliation, double-entry
-accounting, dashboards and reports — with strict role- and location-based access control.
+accounting, school book lists with set-wise stock and author order emails, an owner's outlet-by-outlet
+supervision view, dashboards and reports — with strict role- and location-based access control.
 
 | Layer | Stack |
 |---|---|
 | Frontend | React 19, TypeScript, Vite, Tailwind CSS 4, Radix/shadcn-style components, TanStack Query, React Hook Form + Zod, Recharts |
 | Backend | Python 3.12, FastAPI, Pydantic 2, SQLAlchemy 2, Alembic |
 | Database | PostgreSQL 16/17 (Decimal money, FKs, check constraints, integrity triggers) |
-| Tests | Pytest (77), Vitest + Testing Library (16), Playwright E2E (4) |
+| Tests | Pytest (89), Vitest + Testing Library (16), Playwright E2E (8) |
 | Deploy | Docker / Docker Compose, nginx (SPA + API proxy), Caddy (TLS) |
 
 Further reading: [Architecture](docs/ARCHITECTURE.md) · [Deployment & backups](docs/DEPLOYMENT.md) ·
@@ -71,8 +72,9 @@ invoices and journals reconcile.
 
 Prerequisites: Python 3.12, Node 20+, PostgreSQL 16+.
 
+One-time setup:
+
 ```bash
-# Backend
 cd backend
 python3.12 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 createdb ajanta_dev
@@ -85,16 +87,27 @@ LOG_JSON=false
 ENV
 .venv/bin/alembic upgrade head
 .venv/bin/python -m app.cli seed-demo          # or: create-admin
-.venv/bin/uvicorn app.main:app --reload --port 8000
-
-# Frontend (second terminal)
-cd frontend
-npm ci
-npm run dev                                     # http://localhost:5173, proxies /api → :8000
+cd ../frontend && npm ci
 ```
 
-Set `VITE_API_PROXY=http://127.0.0.1:<port>` if the backend runs on another port.
-API docs (OpenAPI/Swagger) are served at <http://localhost:8000/api/docs>.
+Then, every time, one command runs the whole app:
+
+```bash
+cd frontend && npm run dev                      # http://localhost:5199
+```
+
+`npm run dev` applies any new database migrations, starts the backend on port 8765 (auto-reloading on code
+changes, its log lines prefixed `[backend]`), waits until it is ready, then serves the frontend, which proxies
+`/api` to it. Ctrl+C stops both. If a backend is already running on 8765 it is reused; if the backend can't start
+(no `.venv`, PostgreSQL down, bad `.env`), `npm run dev` stops with the reason.
+To use a backend you run yourself elsewhere, set `VITE_API_PROXY=http://127.0.0.1:<port>`; nothing is started then.
+API docs (OpenAPI/Swagger) are served at <http://localhost:8765/api/docs>.
+The dev ports (5199/8765) are deliberately unusual so they don't collide with other local projects on 5173/8000.
+
+**Firebase (optional).** The frontend connects to a Firebase project when `frontend/.env.local` holds its web
+config (copy `frontend/.env.example`; the file is gitignored). Only Firebase Analytics is used. All business data
+is saved by the backend in PostgreSQL; the browser never writes to Firestore, whose rules stay closed. Without the
+config, Firebase stays unconfigured. Docker builds from this folder pick up `.env.local` too.
 
 ### Operational CLI
 
@@ -159,8 +172,16 @@ What the suites cover (each maps to the acceptance requirements):
   refund approvals, credit-note linkage, exchanges, register expected cash and variance posting,
   no double counting of supplier invoices/payments/expenses, balanced and immutable journals,
   reports/dashboard/CSV/GL reconciliation, inventory valuation equals GL.
+* **School book lists** — Excel import (catalog matching by ISBN or title + author, new books, all-or-nothing
+  validation, re-import replaces a class list), complete sets per location limited by the scarcest book,
+  on-order counts, shop-owner location scope, one purchase order per author with idempotent retries, order
+  email rendering and template validation, receiving raising sets available, permission upgrade safety.
+* **Outlet supervision** — per-outlet today/week/month figures equal the sales reports; stock state, category
+  and staff breakdowns; a shop manager sees only their outlet and no cost or profit figures.
 * **E2E (Playwright)** — book → PO → GRN → transfer → POS sale with GST invoice → return → reports;
-  cashier navigation and access limits; sign-out; cross-user discount approval.
+  cashier navigation and access limits; sign-out; cross-user discount approval; school list Excel import →
+  order → author email; shop owner's school view limited to their shop; every outlet (including a newly
+  opened one) in the owner's sidebar with overview, stock, sales and staff tabs.
 
 ---
 
@@ -169,12 +190,12 @@ What the suites cover (each maps to the acceptance requirements):
 ```
 backend/
   app/
-    api/v1/        HTTP routers (auth, admin, catalog, inventory, purchasing, transfers, pos, customers, finance, reports, approvals)
+    api/v1/        HTTP routers (auth, admin, catalog, inventory, purchasing, transfers, pos, customers, finance, reports, approvals, schools, outlets)
     services/      business logic (inventory ledger, gst engine, accounting, sales, returns, transfers, purchasing, reports…)
     models/        SQLAlchemy models
     core/          config, db, security, errors, logging, middleware
     cli.py, seed.py
-  alembic/         migrations (0001 schema, 0002 integrity triggers)
+  alembic/         migrations (0001 schema, 0002 integrity triggers, 0003 school book lists)
   tests/           pytest suite
   scripts/         entrypoint, backup, restore, e2e database prep
 frontend/
@@ -195,6 +216,9 @@ docs/              architecture, deployment, GST, reports, API
   classification (e.g. printed books under HSN 4901 are commonly nil-rated), invoice format and registration
   details. **No e-invoicing (IRN/QR), e-way bills or GSTR filing integration exists.**
 * **No offline POS.** The POS needs a live connection to the server; stock is authoritative centrally.
+* **School order emails open in your own mail app** (a pre-filled `mailto:` draft). The system records when a
+  draft was opened but cannot know whether you sent it, so it never marks an order as emailed or sent.
+  Very long orders may exceed what some mail apps accept in a link; the dialog offers Copy text for those.
 * **Payment gateways, WhatsApp and SMS are not integrated.** Card/UPI payments are recorded with the terminal
   reference; nothing claims to verify or deliver them. Email works only when SMTP is configured.
 * **Accounting scope:** weighted-average costing; no period close/lock, multi-currency, TDS/TCS, or

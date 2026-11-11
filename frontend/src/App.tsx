@@ -11,10 +11,20 @@ const ResetPasswordPage = lazy(() => import('./pages/auth/ResetPasswordPage'))
 const SetupPage = lazy(() => import('./pages/auth/SetupPage'))
 const AccountPage = lazy(() => import('./pages/auth/AccountPage'))
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
+const OutletsPage = lazy(() => import('./pages/outlets/OutletsPage'))
+const OutletPage = lazy(() => import('./pages/outlets/OutletPage'))
 const BooksPage = lazy(() => import('./pages/catalog/BooksPage'))
 const BookDetailPage = lazy(() => import('./pages/catalog/BookDetailPage'))
 const BookFormPage = lazy(() => import('./pages/catalog/BookFormPage'))
 const ImportPage = lazy(() => import('./pages/catalog/ImportPage'))
+const AuthorsPage = lazy(() => import('./pages/catalog/AuthorsPage'))
+const SchoolsPage = lazy(() => import('./pages/schools/SchoolsPage'))
+const SchoolDetailPage = lazy(() => import('./pages/schools/SchoolDetailPage'))
+const BookListPage = lazy(() => import('./pages/schools/BookListPage'))
+const SchoolImportPage = lazy(() => import('./pages/schools/SchoolImportPage'))
+const SchoolOrderNewPage = lazy(() => import('./pages/schools/SchoolOrderNewPage'))
+const SchoolOrderDetailPage = lazy(() => import('./pages/schools/SchoolOrderDetailPage'))
+const EmailTemplatePage = lazy(() => import('./pages/schools/EmailTemplatePage'))
 const StockPage = lazy(() => import('./pages/inventory/StockPage'))
 const CopiesPage = lazy(() => import('./pages/inventory/CopiesPage'))
 const LabelsPage = lazy(() => import('./pages/inventory/LabelsPage'))
@@ -81,9 +91,19 @@ export default function App() {
           <Route index element={<Home />} />
           <Route path="account" element={<AccountPage />} />
           <Route path="approvals" element={<ApprovalsPage />} />
+          <Route path="outlets" element={<OutletsPage />} />
+          <Route path="outlets/:id" element={<OutletPage />} />
           <Route path="catalog" element={<BooksPage />} />
           <Route path="catalog/new" element={<BookFormPage />} />
           <Route path="catalog/import" element={<ImportPage />} />
+          <Route path="catalog/authors" element={<AuthorsPage />} />
+          <Route path="schools" element={<SchoolsPage />} />
+          <Route path="schools/import" element={<SchoolImportPage />} />
+          <Route path="schools/email-template" element={<EmailTemplatePage />} />
+          <Route path="schools/lists/:id" element={<BookListPage />} />
+          <Route path="schools/orders/:id" element={<SchoolOrderDetailPage />} />
+          <Route path="schools/:id" element={<SchoolDetailPage />} />
+          <Route path="schools/:id/order" element={<SchoolOrderNewPage />} />
           <Route path="catalog/:id" element={<BookDetailPage />} />
           <Route path="catalog/:id/edit" element={<BookFormPage />} />
           <Route path="inventory" element={<StockPage />} />

@@ -11,12 +11,14 @@ from app.api.deps import AuthContext, require, require_any
 from app.core.db import get_db
 from app.core.errors import Conflict, NotFound, ValidationFailed
 from app.models import (
+    Author,
     Book,
     GoodsReceipt,
     Location,
     Payment,
     PaymentAllocation,
     PurchaseOrder,
+    SchoolOrder,
     Supplier,
     SupplierInvoice,
     SupplierReturn,
@@ -228,6 +230,12 @@ class POOut(BaseModel):
     lines: list[POLineOut]
     receipts: list[dict] = []
     approval_request_id: uuid.UUID | None = None
+    school_order_id: uuid.UUID | None = None
+    school_order_number: str | None = None
+    author_id: uuid.UUID | None = None
+    author_name: str | None = None
+    author_email: str | None = None
+    email_opened_at: datetime | None = None
 
 
 def _po_out(db: Session, po: PurchaseOrder, detail: bool = True) -> POOut:
@@ -242,12 +250,17 @@ def _po_out(db: Session, po: PurchaseOrder, detail: bool = True) -> POOut:
                  "invoiced": g.supplier_invoice_id is not None}
                 for g in db.scalars(select(GoodsReceipt).where(GoodsReceipt.po_id == po.id).order_by(GoodsReceipt.received_at))] if detail else []
     pending = approvals.pending_for(db, "purchase_order", po.id) if po.status == "PENDING_APPROVAL" else None
+    author = db.get(Author, po.author_id) if po.author_id else None
+    school_order = db.get(SchoolOrder, po.school_order_id) if po.school_order_id else None
     return POOut(id=po.id, number=po.number, supplier_id=po.supplier_id, supplier_name=po.supplier.name,
                  location_id=po.location_id, location_name=loc.name, status=po.status, order_date=po.order_date,
                  expected_date=po.expected_date, notes=po.notes, subtotal=po.subtotal, tax_total=po.tax_total,
                  total=po.total, created_by_name=creator.full_name if creator else None, approved_at=po.approved_at,
                  issued_at=po.issued_at, created_at=po.created_at, lines=lines, receipts=receipts,
-                 approval_request_id=pending.id if pending else None)
+                 approval_request_id=pending.id if pending else None, school_order_id=po.school_order_id,
+                 school_order_number=school_order.number if school_order else None, author_id=po.author_id,
+                 author_name=author.name if author else None, author_email=author.email if author else None,
+                 email_opened_at=po.email_opened_at)
 
 
 @router.get("/purchase-orders", response_model=Page[POOut])

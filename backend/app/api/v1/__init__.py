@@ -8,12 +8,14 @@ from app.api.v1 import (
     customers,
     finance,
     inventory,
+    outlets,
     pos,
     purchasing,
     reports,
+    schools,
     transfers,
 )
 
 router = APIRouter()
-for module in (auth, admin, catalog, inventory, purchasing, transfers, pos, customers, finance, reports, approvals):
+for module in (auth, admin, catalog, inventory, purchasing, transfers, pos, customers, finance, reports, approvals, schools, outlets):
     router.include_router(module.router)

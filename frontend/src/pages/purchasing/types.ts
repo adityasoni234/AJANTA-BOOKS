@@ -4,6 +4,7 @@ export interface PO {
   order_date: string; expected_date: string | null; notes: string | null; subtotal: string; tax_total: string; total: string
   created_by_name: string | null; approved_at: string | null; issued_at: string | null; created_at: string; lines: POLine[]
   receipts: { id: string; number: string; received_at: string; total_landed: string; invoiced: boolean }[]; approval_request_id: string | null
+  school_order_id: string | null; school_order_number: string | null; author_id: string | null; author_name: string | null; author_email: string | null; email_opened_at: string | null
 }
 export interface GRN {
   id: string; number: string; po_id: string | null; po_number: string | null; supplier_id: string; supplier_name: string; location_id: string; location_name: string

@@ -282,6 +282,33 @@ def inventory_valuation(db: Session, loc_ids: LocIds) -> dict:
             "complete": all(r["items_missing_cost"] == 0 for r in rows)}
 
 
+def stock_buckets(db: Session, loc_ids: LocIds) -> dict:
+    """Units by stock state (on hand, reserved for transfers, damaged, quarantined, in transit) and title counts."""
+    b = InventoryBalance
+    row = db.execute(select(func.coalesce(func.sum(b.on_hand), 0), func.coalesce(func.sum(b.reserved), 0),
+                            func.coalesce(func.sum(b.damaged), 0), func.coalesce(func.sum(b.quarantined), 0),
+                            func.coalesce(func.sum(b.in_transit), 0),
+                            func.count(func.distinct(case((b.on_hand - b.reserved > 0, b.book_id)))))
+                     .where(_loc(b.location_id, loc_ids))).one()
+    on_hand, reserved = int(row[0]), int(row[1])
+    return {"on_hand": on_hand, "reserved": reserved, "available": on_hand - reserved, "damaged": int(row[2]),
+            "quarantined": int(row[3]), "in_transit": int(row[4]), "titles_available": int(row[5])}
+
+
+def stock_by_category(db: Session, loc_ids: LocIds) -> list[dict]:
+    """Sellable stock (on hand) per category: titles, units, retail value and weighted-average cost value."""
+    b = InventoryBalance
+    label = func.coalesce(Category.name, "Uncategorised")
+    q = (select(Book.category_id, label, func.count(func.distinct(b.book_id)), func.sum(b.on_hand),
+                func.sum(b.on_hand * func.coalesce(b.price_override, Book.selling_price)),
+                func.sum(b.on_hand * func.coalesce(b.avg_cost, 0)))
+         .select_from(b).join(Book, Book.id == b.book_id).outerjoin(Category, Category.id == Book.category_id)
+         .where(_loc(b.location_id, loc_ids), b.on_hand > 0)
+         .group_by(Book.category_id, label).order_by(func.sum(b.on_hand).desc()))
+    return [{"category_id": cid, "category": name, "titles": int(t), "units": int(u), "retail_value": r2(D(rv)),
+             "cost_value": r2(D(cv))} for cid, name, t, u, rv, cv in db.execute(q)]
+
+
 def stock_movement_analysis(db: Session, loc_ids: LocIds, *, kind: str, limit: int = 200) -> list[dict]:
     """fast | slow | dead | excess | low | out."""
     policy = get_policy(db)

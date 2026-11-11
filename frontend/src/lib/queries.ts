@@ -3,6 +3,8 @@ import { api } from './api'
 import type { Category, PaymentMethod, TaxClass } from './types'
 
 const LONG = 10 * 60_000
+/** Screens showing stock, sets or takings reload this often while open, so other users' changes appear. */
+export const LIVE_REFRESH_MS = 30_000
 
 export const useTaxClasses = () => useQuery({ queryKey: ['tax-classes'], queryFn: () => api.get<TaxClass[]>('/tax-classes'), staleTime: LONG })
 export const useCategories = () => useQuery({ queryKey: ['categories'], queryFn: () => api.get<Category[]>('/categories'), staleTime: LONG })
